@@ -123,3 +123,10 @@ References: [Playwright retrying assertions](https://playwright.dev/docs/test-as
 - Sanitized attachments and historical analytics; richer JSON Schema/business assertions and representative data factories.
 
 These are explicitly open. Do not use SuperQ's reference project or a green test count as production certification.
+
+
+## Intake-to-automation gap review
+
+Previously, sprint intake produced review suggestions while the execution builder required a separate manual translation. A guided path now connects repository-only, inventory-only and combined analysis to source-backed candidate review, visual action/oracle mapping, dependency/data/account preflight, content-bound plan review, reusable draft generation and actual local trials. Bounded command and assertion observations retain failed interaction/expectation locations without raw values. Trials remain exploratory and require subsequent saved-test review for normal execution.
+
+The corporate-agent extension is a stdio MCP server with a dedicated local credential, revision checks, evidence-excerpt verification and optional reviewed-trial grant. It provides no approval, shell, generic project-edit or secret/session tools. This API capability boundary does not sandbox a host with other local permissions, authenticate the person entering a reviewer name, or establish enterprise tenancy. Native corporate Copilot/IdP/application pilots, evaluated semantic reasoning, full tracker synchronization and signed audit remain required. See [intake and agent guide](guided-intake-and-agents.md).

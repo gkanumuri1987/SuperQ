@@ -1,4 +1,15 @@
 import {
+  IntakePlan,
+  Recipe,
+  discover,
+  preflight,
+  reviewIntake,
+  assertReviewed,
+  materialize,
+  assertPlanCurrent,
+  proposeCase,
+} from "./intake.js";
+import {
   beginSignIn,
   authDirectory,
   sessionStatus,
@@ -11,7 +22,7 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
-import { mkdir, readFile, writeFile, rename } from "node:fs/promises";
+import { mkdir, readFile, writeFile, rename, rm } from "node:fs/promises";
 import { resolve, dirname, join, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -36,7 +47,7 @@ import {
 } from "./identity.js";
 import { coverage } from "./coverage.js";
 import { audit } from "./audit.js";
-import { run } from "./runner.js";
+import { run, resolveAccount } from "./runner.js";
 import { createAdapters } from "./adapters.js";
 import { createReport, writeReports, type Report } from "./reporting.js";
 import { Planner } from "./ai.js";
@@ -44,6 +55,7 @@ import { ollamaProvider } from "./ollama.js";
 import { snapshot, changes, type Snapshot } from "./knowledge.js";
 import { Planning } from "./planning.js";
 export type WorkspaceState = {
+  intake?: IntakePlan;
   planning?: Planning;
   testDesign?: TestDesign;
   revision: number;
@@ -94,6 +106,8 @@ export async function startWorkspace(
     user: string;
     handle: Awaited<ReturnType<typeof beginSignIn>>;
   } | null = null;
+  const agentFile = join(dirname(file), "agent-connection.json");
+  let agentAccess: { token: string; allowTrials: boolean } | null = null;
   let busy = false;
   let scanning = false;
   let state: WorkspaceState;
@@ -103,6 +117,7 @@ export async function startWorkspace(
       ...raw,
       project: validateProject(raw.project),
       testDesign: raw.testDesign ? TestDesign.parse(raw.testDesign) : undefined,
+      intake: raw.intake ? IntakePlan.parse(raw.intake) : undefined,
       planning: raw.planning ? Planning.parse(raw.planning) : undefined,
     };
     state.runs = state.runs.map((r) =>
@@ -294,6 +309,277 @@ export async function startWorkspace(
       unknown
     >;
   }
+  async function launchRun(data: Record<string, unknown>, intakeTrial = false) {
+    const input = z
+      .object({
+        environment: z.string(),
+        user: z.string().min(1).optional(),
+        suite: z.string(),
+        profile: z.string(),
+        workers: z.number().int().min(1).max(16),
+        testIds: z.array(z.string()).default([]),
+        validateDrafts: z.boolean().default(false),
+        acknowledgeCloud: z.boolean().optional(),
+      })
+      .parse(data);
+    const profile = state.project.browsers[input.profile];
+    if (
+      !Object.hasOwn(state.project.browsers, input.profile) ||
+      !Object.hasOwn(state.project.environments, input.environment) ||
+      !Object.hasOwn(state.project.suites, input.suite)
+    )
+      throw new Error("Unknown run configuration");
+    if (
+      profile!.provider !== "local" &&
+      (!input.acknowledgeCloud || input.workers > profile!.maxSessions)
+    )
+      throw new Error(
+        "Confirm cloud session costs and configured session limits",
+      );
+    const selected = new Set(
+      input.testIds.length
+        ? input.testIds
+        : state.project.tests
+            .filter((t) => t.suites.includes(input.suite))
+            .map((t) => t.id),
+    );
+    let more = true;
+    while (more) {
+      more = false;
+      for (const t of state.project.tests)
+        if (selected.has(t.id))
+          for (const dep of t.dependsOn)
+            if (!selected.has(dep)) {
+              selected.add(dep);
+              more = true;
+            }
+    }
+    if (
+      state.plan?.items.some(
+        (i) => i.status === "pending" && selected.has(i.testId),
+      )
+    )
+      throw new Error(
+        "Resolve maintenance changes for the selected tests and prerequisites before running",
+      );
+    if (
+      state.intake?.generated?.testIds.some(
+        (id) =>
+          selected.has(id) &&
+          (input.validateDrafts ||
+            state.project.tests.find((t) => t.id === id)?.status === "draft"),
+      )
+    )
+      assertReviewed(
+        state.intake,
+        state.project,
+        state.planning,
+        state.sourceSnapshot,
+      );
+    const project = validateProject(structuredClone(state.project));
+    if (intakeTrial)
+      Object.assign(project.execution, {
+        includeTags: [],
+        excludeTags: [],
+        shard: undefined,
+        retries: 0,
+        maxFailures: 0,
+        failOnFlaky: true,
+      });
+    project.execution.workers = input.workers;
+    project.execution.user = input.user;
+    project.execution.testIds = input.testIds;
+    if (input.validateDrafts)
+      for (const test of project.tests)
+        if (selected.has(test.id) && test.status === "draft") {
+          test.status = "approved";
+          delete test.review;
+        }
+    const job: WorkspaceState["runs"][number] = {
+      id: randomUUID(),
+      state: "running",
+      draftValidation: input.validateDrafts,
+      at: new Date().toISOString(),
+    };
+    state.runs.unshift(job);
+    busy = true;
+    state.revision++;
+    await save();
+
+    void (async () => {
+      const adapters = createAdapters(profile, undefined, sessionDirectory);
+      try {
+        const results = await run(
+          project,
+          input.environment,
+          input.suite,
+          adapters.registry,
+        );
+        job.report = createReport(
+          project,
+          input.environment,
+          input.suite,
+          [
+            {
+              profile: input.profile,
+              provider: profile!.provider,
+              browser: profile!.browser,
+              results,
+            },
+          ],
+          { ...automationIdentity(), startedAt: job.at },
+        );
+        await writeReports(
+          job.report,
+          ["json", "html", "junit", "markdown"],
+          join(dirname(file), "runs", job.id),
+        );
+        job.state = "completed";
+        activity(
+          "Run completed",
+          `${job.report.summary.passed}/${job.report.summary.total} tests passed.`,
+        );
+      } catch {
+        job.state = "failed";
+        job.error =
+          "Run could not complete. Check browser installation, environment and adapter configuration.";
+      } finally {
+        await adapters.close().catch(() => {});
+        busy = false;
+        state.revision++;
+        await save();
+      }
+    })();
+    return job.id;
+  }
+  async function intakeBlockers() {
+    const plan = state.intake;
+    if (!plan) return [];
+    const blockers = preflight(state.project, plan);
+    const environment = state.project.environments[plan.environment];
+    if (!blockers.length && environment?.sso) {
+      const project = plan.generated
+        ? state.project
+        : materialize(state.project, plan);
+      for (const c of plan.candidates.filter(
+        (c) => c.selected && c.recipe?.kind === "web" && !c.anonymous,
+      )) {
+        const test = project.tests.find((t) => t.id === c.id)!;
+        const account = resolveAccount(project, plan.environment, test);
+        if (
+          !account ||
+          (await sessionStatus(
+            project,
+            plan.environment,
+            account.id,
+            sessionDirectory,
+          )) !== "saved"
+        )
+          blockers.push({
+            candidateId: c.id,
+            kind: "authentication",
+            detail: "A current scoped SSO/MFA session is required",
+            resolution:
+              "Choose a role/default environment account and complete sign-in in Environments & accounts.",
+          });
+      }
+    }
+    return blockers;
+  }
+  async function intakeContext() {
+    let stale = false;
+    if (state.intake)
+      try {
+        assertPlanCurrent(
+          state.intake,
+          state.project,
+          state.planning,
+          state.sourceSnapshot,
+        );
+      } catch {
+        stale = true;
+      }
+    return {
+      plan: state.intake ?? null,
+      stale,
+      blockers: state.intake && !stale ? await intakeBlockers() : [],
+    };
+  }
+  function updateCandidate(data: Record<string, unknown>) {
+    const plan = state.intake;
+    if (!plan || plan.generated)
+      throw new Error("Analyze a new plan before editing mappings");
+    assertPlanCurrent(
+      plan,
+      state.project,
+      state.planning,
+      state.sourceSnapshot,
+    );
+    const candidate = plan.candidates.find((c) => c.id === data.candidateId);
+    if (!candidate) throw new Error("Unknown candidate");
+    const patch = z
+      .object({
+        selected: z.boolean().optional(),
+        recipe: Recipe.nullable().optional(),
+        role: z.string().optional(),
+        user: z.string().optional(),
+        anonymous: z.boolean().optional(),
+      })
+      .strict()
+      .parse(data.patch);
+    if (patch.selected !== undefined) candidate.selected = patch.selected;
+    if (patch.recipe !== undefined)
+      candidate.recipe = patch.recipe ?? undefined;
+    if (patch.role !== undefined) candidate.role = patch.role || undefined;
+    if (patch.user !== undefined) candidate.user = patch.user || undefined;
+    if (patch.anonymous !== undefined) candidate.anonymous = patch.anonymous;
+    delete plan.review;
+    state.revision++;
+  }
+  async function generateIntake() {
+    const plan = state.intake;
+    if (!plan || plan.generated)
+      throw new Error(
+        "Analyze and review a plan first; generated drafts are reused",
+      );
+    assertReviewed(plan, state.project, state.planning, state.sourceSnapshot);
+    if ((await intakeBlockers()).length)
+      throw new Error("Resolve all preflight blockers before generating");
+    change(
+      "Reviewed intake automated as drafts",
+      materialize(state.project, plan),
+    );
+    plan.generated = {
+      testIds: plan.candidates.filter((c) => c.selected).map((c) => c.id),
+      project: projectFingerprint(state.project),
+    };
+  }
+  async function trialIntake() {
+    const plan = state.intake;
+    if (!plan?.generated)
+      throw new Error("Generate reviewed draft automation first");
+    assertReviewed(plan, state.project, state.planning, state.sourceSnapshot);
+    if ((await intakeBlockers()).length)
+      throw new Error(
+        "Resolve current account, data and authentication blockers before the trial",
+      );
+    const local = Object.entries(state.project.browsers).find(
+      ([, p]) => p.provider === "local",
+    );
+    if (!local)
+      throw new Error("Configure a local browser profile for intake trials");
+    return launchRun(
+      {
+        environment: plan.environment,
+        suite: "intake",
+        profile: local[0],
+        workers: 1,
+        testIds: plan.generated.testIds,
+        validateDrafts: true,
+      },
+      true,
+    );
+  }
   const server = createServer(async (req, res) => {
     const path = new URL(req.url ?? "/", "http://localhost").pathname;
     try {
@@ -344,6 +630,136 @@ export async function startWorkspace(
         );
         return;
       }
+      if (path === "/api/agent") {
+        if (
+          req.method !== "POST" ||
+          !agentAccess ||
+          req.headers["x-superq-agent"] !== agentAccess.token ||
+          req.headers["sec-fetch-site"] === "cross-site"
+        ) {
+          json(res, 403, {
+            error: "Enable a dedicated coding-agent connection in Studio",
+          });
+          return;
+        }
+        const data = await body(req);
+        if (data.action === "context") {
+          json(res, 200, {
+            revision: state.revision,
+            project: state.project.name,
+            environments: Object.fromEntries(
+              Object.entries(state.project.environments).map(([name, e]) => [
+                name,
+                {
+                  baseURL: e.baseURL,
+                  apiURL: e.apiURL,
+                  roles: Object.values(e.users ?? {}).map((u) => u.role),
+                  accounts: Object.fromEntries(
+                    Object.entries(e.users ?? {}).map(([alias, user]) => [
+                      alias,
+                      { role: user.role },
+                    ]),
+                  ),
+                  dataKeys: Object.keys(e.data),
+                },
+              ]),
+            ),
+            catalog: state.project.catalog,
+            locators: state.project.locators,
+            requirements: state.project.requirements,
+            evidence: state.project.evidence,
+            inventory: state.planning,
+            sources: state.sourceSnapshot
+              ? {
+                  revision: state.sourceSnapshot.revision,
+                  files: state.sourceSnapshot.files.map((f) => ({
+                    path: f.path,
+                    hash: f.hash,
+                    characters: f.content.length,
+                  })),
+                }
+              : null,
+            intake: await intakeContext(),
+            runs: state.runs.slice(0, 5).map((r) => ({
+              id: r.id,
+              state: r.state,
+              draftValidation: r.draftValidation,
+              results: r.report?.results.slice(0, 100).map((result) => ({
+                ...result,
+                observations: result.observations?.slice(0, 100),
+                diagnosticsTruncated:
+                  result.diagnosticsTruncated ||
+                  (result.observations?.length ?? 0) > 100,
+              })),
+              resultsTruncated: (r.report?.results.length ?? 0) > 100,
+              error: r.error,
+            })),
+            permissions: {
+              propose: true,
+              approve: false,
+              trials: agentAccess.allowTrials,
+            },
+          });
+          return;
+        }
+        if (data.action === "source") {
+          const file = state.sourceSnapshot?.files.find(
+            (f) => f.path === data.path,
+          );
+          if (!file || data.sourceRevision !== state.sourceSnapshot?.revision)
+            throw new Error(
+              "Choose an explicitly scanned source path and its current source revision from context",
+            );
+          json(res, 200, { revision: state.sourceSnapshot!.revision, ...file });
+          return;
+        }
+        if (data.revision !== state.revision) {
+          json(res, 409, {
+            error: "Workspace changed. Read context again before proposing.",
+          });
+          return;
+        }
+        if (busy || scanning || signInStarting || signIn)
+          throw new Error("Wait for the active run, scan or sign-in to finish");
+        if (data.action === "analyze") {
+          state.intake = discover(
+            state.project,
+            z.string().parse(data.environment),
+            z.enum(["api", "web"]).parse(data.preference),
+            state.planning,
+            state.sourceSnapshot,
+          );
+          state.revision++;
+        } else if (data.action === "map") updateCandidate(data);
+        else if (data.action === "propose-case") {
+          if (!state.intake) throw new Error("Analyze sources first");
+          proposeCase(
+            state.intake,
+            state.project,
+            data.proposal,
+            state.planning,
+            state.sourceSnapshot,
+          );
+          state.revision++;
+        } else if (data.action === "trial") {
+          if (!agentAccess.allowTrials)
+            throw new Error(
+              "A human must enable reviewed local trials in Studio",
+            );
+          const id = await trialIntake();
+          json(res, 202, { id });
+          return;
+        } else
+          throw new Error(
+            "Coding agents can read, analyze, propose mappings or run explicitly enabled reviewed trials. Approval and project edits require Studio.",
+          );
+        await save();
+        json(res, 200, {
+          revision: state.revision,
+          intake: await intakeContext(),
+        });
+        return;
+      }
       if (path === "/api/workspace" && req.method === "GET") {
         if (signIn?.handle.isClosed()) signIn = null;
         const authSessions: Record<string, Record<string, string>> = {};
@@ -362,6 +778,12 @@ export async function startWorkspace(
         json(res, 200, {
           ...state,
           token,
+          intakeStatus: await intakeContext(),
+          agentConnection: {
+            enabled: !!agentAccess,
+            allowTrials: agentAccess?.allowTrials ?? false,
+            file: agentAccess ? agentFile : null,
+          },
           authSessions,
           signIn: signIn
             ? {
@@ -455,7 +877,76 @@ export async function startWorkspace(
           });
           return;
         }
-        if (path === "/api/auth/start") {
+        if (path === "/api/intake/analyze") {
+          state.intake = discover(
+            state.project,
+            z.string().parse(data.environment),
+            z.enum(["api", "web"]).parse(data.preference),
+            state.planning,
+            state.sourceSnapshot,
+          );
+          state.revision++;
+          activity(
+            "Automation plan prepared",
+            "Review source coverage, scope, dependencies and executable mappings before approving.",
+          );
+        } else if (path === "/api/intake/map") updateCandidate(data);
+        else if (path === "/api/intake/propose-case") {
+          if (!state.intake) throw new Error("Analyze sources first");
+          proposeCase(
+            state.intake,
+            state.project,
+            data.proposal,
+            state.planning,
+            state.sourceSnapshot,
+          );
+          state.revision++;
+        } else if (path === "/api/intake/review") {
+          if (!state.intake) throw new Error("Analyze sources first");
+          if ((await intakeBlockers()).length)
+            throw new Error("Resolve all selected plan blockers before review");
+          reviewIntake(
+            state.intake,
+            state.project,
+            z.string().parse(data.reviewer),
+            state.planning,
+            state.sourceSnapshot,
+          );
+          state.revision++;
+          activity("Intake plan reviewed", state.intake.review!.reviewer);
+        } else if (path === "/api/intake/generate") await generateIntake();
+        else if (path === "/api/intake/trial") {
+          json(res, 202, { id: await trialIntake() });
+          return;
+        } else if (path === "/api/agent-access") {
+          const enabled = z.boolean().parse(data.enabled);
+          if (enabled) {
+            agentAccess = {
+              token: randomBytes(32).toString("hex"),
+              allowTrials: z.boolean().parse(data.allowTrials),
+            };
+            const temp = `${agentFile}.tmp`;
+            await writeFile(
+              temp,
+              JSON.stringify({
+                url: `http://127.0.0.1:${(server.address() as { port: number }).port}`,
+                token: agentAccess.token,
+              }),
+              { mode: 0o600 },
+            );
+            await rename(temp, agentFile);
+          } else {
+            agentAccess = null;
+            await rm(agentFile, { force: true });
+          }
+          state.revision++;
+          activity(
+            "Coding-agent access changed",
+            enabled
+              ? "Explicit local connection enabled; plan approval remains in Studio."
+              : "Agent connection revoked.",
+          );
+        } else if (path === "/api/auth/start") {
           if (
             canonical(data.base) !==
             canonical({
@@ -562,6 +1053,7 @@ export async function startWorkspace(
           change("Project updated", validateProject(data.project));
         else if (path === "/api/import") {
           change("Project imported", validateProject(data.project));
+          state.intake = undefined;
           state.planning = undefined;
           state.testDesign = undefined;
           state.sample = false;
@@ -709,127 +1201,7 @@ export async function startWorkspace(
           json(res, 200, { proposal: result, status: "draft" });
           return;
         } else if (path === "/api/runs") {
-          const input = z
-            .object({
-              environment: z.string(),
-              user: z.string().min(1).optional(),
-              suite: z.string(),
-              profile: z.string(),
-              workers: z.number().int().min(1).max(16),
-              testIds: z.array(z.string()).default([]),
-              validateDrafts: z.boolean().default(false),
-              acknowledgeCloud: z.boolean().optional(),
-            })
-            .parse(data);
-          const profile = state.project.browsers[input.profile];
-          if (
-            !Object.hasOwn(state.project.browsers, input.profile) ||
-            !Object.hasOwn(state.project.environments, input.environment) ||
-            !Object.hasOwn(state.project.suites, input.suite)
-          )
-            throw new Error("Unknown run configuration");
-          if (
-            profile!.provider !== "local" &&
-            (!input.acknowledgeCloud || input.workers > profile!.maxSessions)
-          )
-            throw new Error(
-              "Confirm cloud session costs and configured session limits",
-            );
-          const selected = new Set(
-            input.testIds.length
-              ? input.testIds
-              : state.project.tests
-                  .filter((t) => t.suites.includes(input.suite))
-                  .map((t) => t.id),
-          );
-          let more = true;
-          while (more) {
-            more = false;
-            for (const t of state.project.tests)
-              if (selected.has(t.id))
-                for (const dep of t.dependsOn)
-                  if (!selected.has(dep)) {
-                    selected.add(dep);
-                    more = true;
-                  }
-          }
-          if (
-            state.plan?.items.some(
-              (i) => i.status === "pending" && selected.has(i.testId),
-            )
-          )
-            throw new Error(
-              "Resolve maintenance changes for the selected tests and prerequisites before running",
-            );
-          const project = validateProject(structuredClone(state.project));
-          project.execution.workers = input.workers;
-          project.execution.user = input.user;
-          project.execution.testIds = input.testIds;
-          if (input.validateDrafts)
-            for (const test of project.tests)
-              if (selected.has(test.id) && test.status === "draft") {
-                test.status = "approved";
-                delete test.review;
-              }
-          const job: WorkspaceState["runs"][number] = {
-            id: randomUUID(),
-            state: "running",
-            draftValidation: input.validateDrafts,
-            at: new Date().toISOString(),
-          };
-          state.runs.unshift(job);
-          busy = true;
-          state.revision++;
-          await save();
-          json(res, 202, { id: job.id });
-          void (async () => {
-            const adapters = createAdapters(
-              profile,
-              undefined,
-              sessionDirectory,
-            );
-            try {
-              const results = await run(
-                project,
-                input.environment,
-                input.suite,
-                adapters.registry,
-              );
-              job.report = createReport(
-                project,
-                input.environment,
-                input.suite,
-                [
-                  {
-                    profile: input.profile,
-                    provider: profile!.provider,
-                    browser: profile!.browser,
-                    results,
-                  },
-                ],
-                { ...automationIdentity(), startedAt: job.at },
-              );
-              await writeReports(
-                job.report,
-                ["json", "html", "junit", "markdown"],
-                join(dirname(file), "runs", job.id),
-              );
-              job.state = "completed";
-              activity(
-                "Run completed",
-                `${job.report.summary.passed}/${job.report.summary.total} tests passed.`,
-              );
-            } catch {
-              job.state = "failed";
-              job.error =
-                "Run could not complete. Check browser installation, environment and adapter configuration.";
-            } finally {
-              await adapters.close().catch(() => {});
-              busy = false;
-              state.revision++;
-              await save();
-            }
-          })();
+          json(res, 202, { id: await launchRun(data) });
           return;
         } else {
           json(res, 404, { error: "Unknown workspace action" });
@@ -909,6 +1281,8 @@ export async function startWorkspace(
     state: () => state,
     close: async () => {
       clearInterval(timer);
+      agentAccess = null;
+      await rm(agentFile, { force: true });
       await signIn?.handle.cancel();
       await vite?.close();
       await new Promise<void>((resolve) => server.close(() => resolve()));

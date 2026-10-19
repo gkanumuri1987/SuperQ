@@ -14,6 +14,12 @@ npm run studio
 
 Open `http://127.0.0.1:4310` to start with **Automate**: choose an expectation, add the interaction and try the test. Common functional screen/API checks reuse framework configuration automatically. Specialist screens stay under **More tools**. See the [simple functional workflow](docs/easy-automation.md). The change inbox shows affected tests with before/after validation, locator, workflow and functionality comparisons. Stage updates as drafts, record review, and run again. Optional allowlisted local Git monitoring detects committed changes while Studio is open. The initial workspace is a clearly labeled interactive sample. See the [Studio workflow guide](docs/studio-ux.md). Intake & sprint planning also accepts mapped manual-test exports with team, sprint, feature lifecycle, story, dependency and document evidence. See [sprint intake](docs/sprint-intake.md) for the format and current limits.
 
+## Start from repositories, manual tests or both
+
+Studio → **Start from sources** prepares a reviewable automation plan from committed sources, manual inventory or both. Paste spreadsheet cases, map API requests or ordered web interactions, resolve data/accounts/dependencies, approve the plan, generate reusable drafts and run an actual local trial. Source/configuration changes invalidate old plan approval; command and assertion diagnostics retain failed steps. See [guided intake and corporate agents](docs/guided-intake-and-agents.md).
+
+The included **stdio MCP server** lets a permitted corporate Copilot or another MCP-capable host read shared evidence, propose cited scenarios/mappings and optionally run separately authorized reviewed trials. It cannot approve plans through its tools. Corporate model access remains with the host; no model subscription or paid call is enabled by SuperQ. Platform authentication/isolation remains enterprise work.
+
 ## Run locally
 
 Requires Node.js 22.12+ and Git.
@@ -82,7 +88,7 @@ Copy `examples/project.json`. Replace reference evidence with your real acceptan
 Action operation signatures:
 
 - `api:request`: `{path, method?, body?, headers?}` → `{status, body}`. Same-origin only, redirects disabled.
-- `web:journey`: `{commands: [{type: 'goto', path}, {type: 'fill', locator, value}, {type: 'click', locator}, {type: 'text', locator}]}` → `{url, text}`. Text values use locator IDs as keys. Third-party browser requests are blocked in this version; federated login requires an explicit future origin policy.
+- `web:journey`: `{commands: [{type: 'goto', path}, {type: 'fill', locator, value}, {type: 'click', locator}, {type: 'text', locator}]}` → `{url, text}`. Text values use locator IDs as keys. Third-party browser requests are blocked in this version; federated sign-in uses the separately configured SSO/MFA capture workflow; normal journeys reuse scoped sessions.
 - `postgres:query`: `{query, params?}` → `{rows, rowCount}`. Use `$1` parameter binding.
 - `snowflake:query`: `{query, params?}` → `{rows, rowCount}`. Use `?` binding and an explicitly configured read-only role.
 - `mongo:find`: `{database, collection, filter?, limit?}` → `{rows, rowCount}`. Maximum 1,000 rows, 30-second query limit.
@@ -114,7 +120,7 @@ npm run superq -- snapshot /path/to/application .superq-after.json README.md src
 npm run superq -- diff .superq-before.json .superq-after.json
 ```
 
-Pass all paths in scope for each snapshot; omission is interpreted as removal. Files must be tracked, committed, small text files within the repository. The explicit path list and filename guards reduce accidental exposure but do not detect every secret. Review source before sharing evidence with a model. Snapshot output contains code; store it privately. Source updates are manual commands or CI steps today, not a background watcher.
+Pass all paths in scope for each snapshot; omission is interpreted as removal. Files must be tracked, committed, small text files within the repository. The explicit path list and filename guards reduce accidental exposure but do not detect every secret. Review source before sharing evidence with a model. Snapshot output contains code; store it privately. CLI snapshots are explicit; Studio also supports optional committed-source monitoring while its local server is running.
 
 ### AI and tracker extension points
 

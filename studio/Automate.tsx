@@ -138,6 +138,12 @@ export default function Automate({
             you’re ready.
           </p>
         )}
+        <p className="automate-note">
+          Have a repository or manual suite?{" "}
+          <a href="#intake">
+            Start from sources and review a guided automation plan →
+          </a>
+        </p>
       </div>
       {!created ? (
         <div className="automate-card">

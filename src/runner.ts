@@ -1,9 +1,9 @@
 import { AuthenticationRequired } from './auth-session.js';
 import assert from 'node:assert/strict';
-import type { Project, Result, Step, Assertion, Attempt } from './model.js';
+import type { Project, Result, Step, Assertion, Attempt, Observation } from './model.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { Execution } from './config.js';
-export type Context = { project: Project; baseURL: string; apiURL?: string; urls?: Record<string,string>; account?: {id:string;role:string;username?:string;password?:string;token?:string;mfaSecret?:string}; environment?:string; sso?:Project["environments"][string]["sso"]; login?: NonNullable<Project["environments"][string]["login"]>; data: Record<string,unknown>; testId?: string; attempt?: number; signal?:AbortSignal };
+export type Context = { project: Project; baseURL: string; apiURL?: string; urls?: Record<string,string>; account?: {id:string;role:string;username?:string;password?:string;token?:string;mfaSecret?:string}; environment?:string; sso?:Project["environments"][string]["sso"]; login?: NonNullable<Project["environments"][string]["login"]>; data: Record<string,unknown>; testId?: string; attempt?: number; signal?:AbortSignal; observe?:(observation:Omit<Observation,"step">)=>void };
 export type Handler = (input: Record<string,unknown>, context: Context) => Promise<unknown>;
 export class Registry {
   private handlers = new Map<string,Handler>();
@@ -80,8 +80,8 @@ export async function run(p: Project, env: string, suite: string, registry: Regi
   const results=new Map<string,Result>(); const pending=new Set(tests.map(t=>t.id));
   const running=new Map<string,Promise<void>>(); let failures=0;let timedOut=false;
   async function execute(id:string):Promise<Result> {
-    const t=tests.find(t=>t.id===id)!; const start=Date.now(); const attempts:Attempt[]=[];
-    const finish=(status:Result['status'],reason?:string):Result=>({id,status,durationMs:Date.now()-start,attempts,flaky:status==='passed'&&attempts.length>1,dependency:!roots.includes(id),...(reason?{reason}:{})});
+    const t=tests.find(t=>t.id===id)!; const start=Date.now(); const attempts:Attempt[]=[]; const observations:Observation[]=[]; let diagnosticsTruncated=false,finished=false;
+    const finish=(status:Result['status'],reason?:string):Result=>{finished=true;return ({id,observations,diagnosticsTruncated,status,durationMs:Date.now()-start,attempts,flaky:status==='passed'&&attempts.length>1,dependency:!roots.includes(id),...(reason?{reason}:{})});};
     if(t.status!=='approved') return finish('skipped','Review required');
     if(t.blockedBy.length) return finish('blocked',`Blockers: ${t.blockedBy.join(', ')}`);
     for(const d of t.dependsOn) if(results.get(d)?.status!=='passed') return finish('blocked',`Dependency ${d} did not pass`);
@@ -98,9 +98,13 @@ export async function run(p: Project, env: string, suite: string, registry: Regi
           const controller=new AbortController();let timer:ReturnType<typeof setTimeout>|undefined;
           const timeout=new Promise<never>((_,reject)=>{timer=setTimeout(()=>{didTimeout=true;timedOut=true;controller.abort();reject(new Error('Step deadline exceeded'));},options.stepTimeoutMs);});
           let response:unknown;
-          try{response=await Promise.race([registry.get(`${action.kind}:${action.operation}`)(s.input,{...context,signal:controller.signal}),timeout]);}
+          try{response=await Promise.race([registry.get(`${action.kind}:${action.operation}`)(s.input,{...context,signal:controller.signal,observe: o=>{if(finished)return;if(observations.length<1000)observations.push({...o,step,attempt:number});else diagnosticsTruncated=true;}}),timeout]);}
           finally{clearTimeout(timer);}
-          failureKind='assertion'; s.assertions.forEach(a=>check(response,a));
+          failureKind='assertion';
+          for(const a of s.assertions) {
+            try {check(response,a);if(observations.length<1000)observations.push({step,attempt:number,operation:'assert',assertionPath:a.path,status:'passed'});else diagnosticsTruncated=true;}
+            catch(error){if(observations.length<1000)observations.push({step,attempt:number,operation:'assert',assertionPath:a.path,status:'failed',issue:'assertion-failed'});else diagnosticsTruncated=true;throw error;}
+          }
           for(const [key,path] of Object.entries(s.save)){const value=valueAt(response,path);if(value===undefined) throw new Error('Saved response field is missing');Object.assign(data,{[key]:value});}
         }
         attempts.push({number,status:'passed',durationMs:Date.now()-attemptStart}); return finish('passed');

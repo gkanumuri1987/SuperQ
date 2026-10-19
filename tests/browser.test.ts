@@ -21,6 +21,6 @@ test('web-first text assertion waits for delayed UI state and still rejects wron
   await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));const address=server.address();assert.ok(address&&typeof address!=='string');
   const p=validateProject(JSON.parse(await readFile('examples/project.json','utf8')));p.environments.local!.baseURL=`http://127.0.0.1:${address.port}`;
   const step=p.tests[1]!.steps[0]!;step.input.commands=[{type:'goto',path:'/'},{type:'expectText',locator:'health-status',value:'Service healthy',timeoutMs:2000}];const adapters=createAdapters();
-  try{assert.equal((await run(p,'local','browser',adapters.registry))[0]!.status,'passed');step.input.commands=[{type:'goto',path:'/'},{type:'expectText',locator:'health-status',value:'Impossible',timeoutMs:200}];assert.equal((await run(p,'local','browser',adapters.registry))[0]!.status,'failed');}
+  try{assert.equal((await run(p,'local','browser',adapters.registry))[0]!.status,'passed');step.input.commands=[{type:'goto',path:'/'},{type:'expectText',locator:'health-status',value:'Impossible',timeoutMs:200}];const failed=(await run(p,'local','browser',adapters.registry))[0]!;assert.equal(failed.status,'failed');assert.equal(failed.observations?.at(-1)?.issue,'expectation-failed');assert.equal(failed.observations?.at(-1)?.command,2);assert.ok(!JSON.stringify(failed).includes('Impossible'));assert.ok(!JSON.stringify(failed).includes('Service healthy'));}
   finally{await adapters.close();await new Promise<void>(resolve=>server.close(()=>resolve()));}
 });

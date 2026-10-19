@@ -34,3 +34,12 @@ The full local suite passes 74 tests. New coverage exercises role selection/ambi
 ## Application SSO/MFA
 
 The full local suite passes 79 tests, including redirected interactive MFA capture/reuse, environment/account isolation, expiry and provider rejection blockers, cancellation, disallowed redirect prevention, HTTPS tunnel destination controls, RFC 6238 vectors for SHA-1/SHA-256/SHA-512, actual TOTP form submission, and Studio save/forget/TOTP configuration. Production build and strict typechecks pass. Tests use local fixtures and headless Chromium capture connectors; native headed interaction, live identity-provider policies, hardware factors and remote-browser compatibility remain unvalidated. No paid cloud browser or model call was used.
+
+
+## Guided intake and coding-agent interoperability
+
+The full local suite passes 92 tests, with a production build, strict backend/frontend/test typechecks and clean diff checks. Repository-only, inventory-only and combined intake are covered, including an actual temporary Git checkout that remains unchanged by SuperQ. Tests exercise source revisions, exact citations, scope/lifecycle, dependency cycles, missing data/accounts/SSO sessions, duplicate mappings, plan-review invalidation, draft generation and API trials that cannot silently inherit unrelated tag/shard filters.
+
+The active Studio test pastes manual cases, maps an ordered flow through visual controls, reviews the plan, generates drafts, clicks the local sample application and verifies its result at desktop/mobile widths. A real official-SDK MCP client launches the stdio server as a child process and tests tool discovery, proposal/review separation, credential scope, stale requests, optional reviewed-trial permission, revocation, account selection and sanitized diagnostics. Multiple assertions against the same changing UI control retain distinct checkpoints. Source tools reject unknown paths/stale revisions and fetch only explicitly scanned content. Desktop intake rendering was visually inspected.
+
+These are controlled local fixtures, not a live corporate Copilot deployment, native tracker-suite synchronization, arbitrary-code semantic evaluation, autonomous browser exploration or a production certification exercise. The MCP interface does not sandbox a host with other local permissions. No paid AI/cloud sessions were used. Hosted CI for this revision remains unobserved.

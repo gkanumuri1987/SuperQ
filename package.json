@@ -21,9 +21,11 @@
     "studio:serve": "tsx src/workspace-server.ts",
     "build:studio": "vite build --config studio/vite.config.ts",
     "typecheck:studio": "tsc -p studio/tsconfig.json",
-    "format:studio": "prettier --write studio src/maintenance.ts src/workspace-server.ts src/workspace/sample.ts tests/maintenance.test.ts tests/workspace.test.ts tests/studio.test.ts"
+    "format:studio": "prettier --write studio src/maintenance.ts src/workspace-server.ts src/workspace/sample.ts tests/maintenance.test.ts tests/workspace.test.ts tests/studio.test.ts",
+    "mcp": "tsx src/mcp-server.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@playwright/test": "^1.56.0",
     "lucide-react": "^1.59.0",
     "mongodb": "^6.20.0",

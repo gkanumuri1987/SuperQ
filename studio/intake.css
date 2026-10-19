@@ -1,0 +1,115 @@
+.intake-home {
+  max-width: 1000px;
+}
+.intake-progress {
+  display: flex;
+  gap: 12px;
+  margin: 24px 0;
+  flex-wrap: wrap;
+}
+.intake-progress span {
+  border-radius: 20px;
+  padding: 10px 16px;
+  font-size: 12px;
+  background: #eaf0fc;
+  color: #325aa8;
+  font-weight: 600;
+}
+.intake-section {
+  margin-top: 24px;
+}
+.intake-source-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+.intake-source-grid > div {
+  background: #f7f9fc;
+  padding: 20px;
+  border-radius: 10px;
+}
+.intake-source-grid button {
+  margin: 4px 0;
+}
+.intake-candidate {
+  border: 1px solid #dfe5ef;
+  border-radius: 12px;
+  padding: 20px;
+  margin: 20px 0;
+}
+.intake-candidate-heading {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+.automate-card .intake-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  line-height: 1.6;
+}
+.automate-card .intake-check input {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+.intake-badge {
+  background: #fff1df;
+  color: #895720;
+  padding: 6px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.intake-badge.current {
+  background: #eaf6f0;
+  color: #26714f;
+}
+.intake-candidate pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 12px;
+  background: #f6f8fb;
+  font-size: 12px;
+  max-height: 250px;
+  overflow: auto;
+}
+.intake-candidate li {
+  margin: 12px 0;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.intake-blocker {
+  background: #fff6e8;
+  border-left: 3px solid #dfaa54;
+  padding: 12px 16px;
+  font-size: 12px;
+}
+.intake-mapping {
+  margin-top: 22px;
+  padding-top: 22px;
+  border-top: 1px solid #e0e6ef;
+}
+.intake-mapping fieldset {
+  border: 1px solid #dde3ed;
+  padding: 16px;
+  border-radius: 8px;
+  margin: 16px 0;
+  min-width: 0;
+}
+.intake-mapping legend {
+  font-size: 12px;
+  font-weight: 600;
+  color: #53637b;
+  padding: 0 6px;
+}
+@media (max-width: 700px) {
+  .intake-source-grid {
+    grid-template-columns: 1fr;
+  }
+  .intake-candidate-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

@@ -25,7 +25,8 @@ export function createAdapters(rawProfile:unknown={provider:'local'}, connector:
     const url=new URL(i.path,base); if(url.origin!==new URL(base).origin) throw new Error('Cross-origin API request denied');
     const api=await request.newContext({baseURL:base,timeout:30_000,ignoreHTTPSErrors:false});
     const abort=()=>{void api.dispose().catch(()=>{});};ctx.signal?.addEventListener('abort',abort,{once:true});if(ctx.signal?.aborted)abort();
-    try { const r=await api.fetch(url.href,{method:i.method,data:i.body,headers:{...(ctx.account?.token&&url.origin===new URL(ctx.apiURL??ctx.baseURL).origin?{authorization:`Bearer ${ctx.account.token}`} : {}),...Object.fromEntries(Object.entries(i.headers??{}).map(([k,v])=>[k.toLowerCase(),v]))},maxRedirects:0}); const text=await r.text(); let body:unknown=text; try{body=JSON.parse(text);}catch{} return {status:r.status(),body}; }
+    try { const r=await api.fetch(url.href,{method:i.method,data:i.body,headers:{...(ctx.account?.token&&url.origin===new URL(ctx.apiURL??ctx.baseURL).origin?{authorization:`Bearer ${ctx.account.token}`} : {}),...Object.fromEntries(Object.entries(i.headers??{}).map(([k,v])=>[k.toLowerCase(),v]))},maxRedirects:0}); const text=await r.text(); let body:unknown=text; try{body=JSON.parse(text);}catch{} ctx.observe?.({operation:"api.request",status:"passed"});return {status:r.status(),body}; }
+    catch(error){ctx.observe?.({operation:"api.request",status:"failed",issue:"interaction-failed"});throw error;}
     finally {ctx.signal?.removeEventListener('abort',abort); await api.dispose(); }
   });
   registry.register('web:journey',async(input,ctx)=>{
@@ -48,7 +49,7 @@ export function createAdapters(rawProfile:unknown={provider:'local'}, connector:
       context=await browser.newContext({storageState,serviceWorkers:'block',viewport:profile.viewport,locale:profile.locale,timezoneId:profile.timezoneId});
       const origin=new URL(ctx.baseURL).origin;
       await context.route('**/*',async route=> { const url=new URL(route.request().url()); if(url.origin===origin) await route.continue(); else await route.abort(); });
-      const page=await context.newPage(); page.setDefaultTimeout(15_000); const text:Record<string,string>={};
+      const page=await context.newPage(); page.setDefaultTimeout(15_000); const text:Record<string,string>={};const checkpoints:Record<string,string>={};
       if(ctx.account&&ctx.sso){
         try{await page.goto(new URL(ctx.sso.successPath,ctx.baseURL).href);await expect(page).toHaveURL(new URL(ctx.sso.successPath,ctx.baseURL).href,{timeout:5000});await expect(page.getByText(String(interpolate(ctx.sso.successText,ctx.data)),{exact:true})).toBeVisible({timeout:5000});}
         catch{throw new AuthenticationRequired();}
@@ -66,16 +67,26 @@ export function createAdapters(rawProfile:unknown={provider:'local'}, connector:
         await expect(page).toHaveURL(successURL.href);
         }catch{throw new AuthenticationRequired('Form sign-in or MFA was not accepted. Check the account, authentication settings and provider response.');}
       }
+      let commandIndex=0;
       for(const c of i.commands) {
-        if(c.type==='goto') { const url=new URL(c.path,ctx.baseURL); if(url.origin!==origin) throw new Error('Cross-origin navigation denied'); await page.goto(url.href); continue; }
+        commandIndex++;
+        let matches:number|undefined;
+        try {
+        if(c.type==='goto') { const url=new URL(c.path,ctx.baseURL); if(url.origin!==origin) throw new Error('Cross-origin navigation denied'); await page.goto(url.href);ctx.observe?.({command:commandIndex,operation:'web.goto',status:'passed'}); continue; }
         const def=interpolate(ctx.project.locators[c.locator],ctx.data) as typeof ctx.project.locators[string]; if(!def) throw new Error(`Unknown locator ${c.locator}`);
         const locator=def.strategy==='text'?page.getByText(def.value,{exact:true}):def.strategy==='testId'?page.getByTestId(def.value):def.strategy==='label'?page.getByLabel(def.value,{exact:true}):page.getByRole(def.value as Parameters<typeof page.getByRole>[0],{name:def.name,exact:true});
+        matches=await locator.count();
         if(c.type==='click') await locator.click();
         else if(c.type==='fill') await locator.fill(c.value);
-        else if(c.type==='expectText') {await expect(locator).toBeVisible({timeout:c.timeoutMs});await expect(locator).toHaveText(c.value,{timeout:c.timeoutMs});text[c.locator]=await locator.innerText();}
+        else if(c.type==='expectText') {await expect(locator).toBeVisible({timeout:c.timeoutMs});await expect(locator).toHaveText(c.value,{timeout:c.timeoutMs});const observed=await locator.innerText();text[c.locator]=observed;checkpoints[String(commandIndex)]=observed;}
         else { await locator.waitFor({state:'visible'}); text[c.locator]=await locator.innerText(); }
+        ctx.observe?.({command:commandIndex,operation:`web.${c.type}`,status:'passed',locator:c.locator});
+        }catch(error){
+          ctx.observe?.({command:commandIndex,operation:`web.${c.type}`,status:'failed',...('locator' in c?{locator:c.locator}:{}),issue:c.type==='goto'?'navigation-failed':matches===0?'control-unavailable':matches&&matches>1?'ambiguous-control':c.type==='expectText'?'expectation-failed':'interaction-failed'});
+          throw error;
+        }
       }
-      return {url:page.url(),text};
+      return {url:page.url(),text,checkpoints};
     } finally {ctx.signal?.removeEventListener('abort',abort); try {await context?.close();} finally {await browser.close();browsers.delete(browser);} }
   });
   registry.register('postgres:query',async input=>{

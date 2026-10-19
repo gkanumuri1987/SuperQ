@@ -30,8 +30,10 @@ export type TestCase = Project['tests'][number];
 export type Step = z.infer<typeof Step>;
 export type Assertion = z.infer<typeof Assertion>;
 export type Attempt = { number: number; status: 'passed'|'failed'; durationMs: number; failedStep?: number; failureKind?: 'action'|'assertion'|'timeout' };
-export const ResultSchema=z.object({id,status:z.enum(['passed','failed','blocked','skipped']),durationMs:z.number().finite().nonnegative(),reason:z.string().optional(),flaky:z.boolean().optional(),dependency:z.boolean().optional(),attempts:z.array(z.object({number:z.number().int().positive(),status:z.enum(['passed','failed']),durationMs:z.number().finite().nonnegative(),failedStep:z.number().int().nonnegative().optional(),failureKind:z.enum(['action','assertion','timeout']).optional()}).strict()).optional()}).strict();
-export type Result = { id: string; status: 'passed'|'failed'|'blocked'|'skipped'; durationMs: number; reason?: string; attempts?: Attempt[]; flaky?: boolean; dependency?: boolean };
+export const Observation = z.object({ attempt: z.number().int().positive().optional(), step: z.number().int().positive(), command: z.number().int().positive().optional(), operation: z.string(), status: z.enum(['passed','failed']), locator: z.string().optional(), assertionPath: z.string().optional(), issue: z.enum(['navigation-failed','control-unavailable','ambiguous-control','interaction-failed','expectation-failed','assertion-failed']).optional() }).strict();
+export type Observation = z.infer<typeof Observation>;
+export const ResultSchema=z.object({id,observations:z.array(Observation).optional(),diagnosticsTruncated:z.boolean().optional(),status:z.enum(['passed','failed','blocked','skipped']),durationMs:z.number().finite().nonnegative(),reason:z.string().optional(),flaky:z.boolean().optional(),dependency:z.boolean().optional(),attempts:z.array(z.object({number:z.number().int().positive(),status:z.enum(['passed','failed']),durationMs:z.number().finite().nonnegative(),failedStep:z.number().int().nonnegative().optional(),failureKind:z.enum(['action','assertion','timeout']).optional()}).strict()).optional()}).strict();
+export type Result = { id: string; observations?: Observation[]; diagnosticsTruncated?: boolean; status: 'passed'|'failed'|'blocked'|'skipped'; durationMs: number; reason?: string; attempts?: Attempt[]; flaky?: boolean; dependency?: boolean };
 
 export function validateProject(raw: unknown): Project {
   const p = Project.parse(raw);

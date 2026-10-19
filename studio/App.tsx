@@ -1,3 +1,5 @@
+import Intake from "./Intake";
+import type { preflight, IntakePlan } from "../src/intake";
 import Environments from "./Environments";
 import Automate from "./Automate";
 import CoverageLab from "./CoverageLab";
@@ -64,6 +66,16 @@ import type { coverage } from "../src/coverage";
 import type { audit } from "../src/audit";
 type Data = WorkspaceState & {
   token: string;
+  intakeStatus: {
+    plan: IntakePlan | null;
+    stale: boolean;
+    blockers: ReturnType<typeof preflight>;
+  };
+  agentConnection: {
+    enabled: boolean;
+    allowTrials: boolean;
+    file: string | null;
+  };
   authSessions: Record<string, Record<string, string>>;
   signIn: { id: string; environment: string; user: string } | null;
   reviews: Record<string, boolean>;
@@ -75,6 +87,7 @@ const navigation = [
     label: "Workspace",
     items: [
       { id: "automate", label: "Automate", icon: Zap },
+      { id: "intake", label: "Start from sources", icon: Workflow },
       { id: "overview", label: "Overview", icon: LayoutDashboard },
     ],
   },
@@ -476,6 +489,7 @@ export default function App() {
                     .filter((i) =>
                       [
                         "automate",
+                        "intake",
                         "tests",
                         "runs",
                         "maintenance",
@@ -574,6 +588,17 @@ export default function App() {
                 <X size={16} />
               </button>
             </div>
+          )}
+          {page === "intake" && (
+            <Intake
+              state={data}
+              status={data.intakeStatus}
+              agent={data.agentConnection}
+              action={(path, body) =>
+                mutate(path, body, "Automation workflow updated")
+              }
+              go={go}
+            />
           )}
           {page === "planning" && (
             <PlanningScreen
