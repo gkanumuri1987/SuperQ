@@ -1,3 +1,7 @@
+import WorkQueue from "./WorkQueue";
+import type { workQueue } from "../src/work-queue";
+import type { studioEvidence } from "../src/studio-evidence";
+import type { RunPreflight } from "../src/run-preflight";
 import type { Recording } from "../src/recorder";
 import Quality, { Capabilities, type Care } from "./Quality";
 import Intake from "./Intake";
@@ -68,6 +72,8 @@ import type { coverage } from "../src/coverage";
 import type { audit } from "../src/audit";
 type Data = WorkspaceState & {
   token: string;
+  evidence: ReturnType<typeof studioEvidence>;
+  workQueue: ReturnType<typeof workQueue>;
   recording: (Recording & { candidateId: string }) | null;
   care: Care;
   intakeStatus: {
@@ -312,6 +318,7 @@ export default function App() {
     [runEnvironment, setRunEnvironment] = useState(""),
     [profile, setProfile] = useState("local"),
     [resolution, setResolution] = useState("");
+  const [evidenceKey, setEvidenceKey] = useState("");
   const [modalRevision, setModalRevision] = useState(0);
   const [moreTools, setMoreTools] = useState(false);
   const [qualityView, setQualityView] = useState("healing");
@@ -366,6 +373,7 @@ export default function App() {
     path: string,
     body: Record<string, unknown>,
     message: string,
+    receive?: (result: Record<string, unknown>) => void,
   ) {
     if (!data) return false;
     setLoading(true);
@@ -384,6 +392,7 @@ export default function App() {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Could not save");
+      receive?.(result);
       await refresh();
       setToast(message);
       return true;
@@ -403,6 +412,10 @@ export default function App() {
         {error && <Button onClick={() => location.reload()}>Try again</Button>}
       </div>
     );
+  const selectedEvidence =
+    data.evidence.contexts.find((c) => c.key === evidenceKey) ??
+    data.evidence.contexts[0];
+  const displayCoverage = selectedEvidence?.coverage ?? data.coverage;
   const p = data.project,
     pending = data.plan?.items.filter((i) => i.status === "pending") ?? [],
     staged = data.plan?.items.filter((i) => i.status === "staged") ?? [];
@@ -595,6 +608,56 @@ export default function App() {
               go("quality");
             }}
           />
+          {page === "automate" && (
+            <WorkQueue
+              queue={data.workQueue}
+              open={(item) => {
+                if (item.testId && item.target === "tests")
+                  edited(p.tests.find((t) => t.id === item.testId));
+                else if (item.action === "Choose run context") setModal("run");
+                else {
+                  if (item.target === "quality") setQualityView("healing");
+                  go(item.target);
+                }
+              }}
+            />
+          )}
+          {["overview", "coverage", "requirements"].includes(page) && (
+            <section
+              className="evidence-context"
+              aria-label="Coverage evidence context"
+            >
+              <label>
+                Coverage evidence
+                <select
+                  aria-label="Coverage evidence"
+                  value={selectedEvidence?.key ?? ""}
+                  onChange={(e) => setEvidenceKey(e.target.value)}
+                >
+                  {!data.evidence.contexts.length && (
+                    <option value="">
+                      Declared coverage only · no execution evidence
+                    </option>
+                  )}
+                  {data.evidence.contexts.map((c) => (
+                    <option key={c.key} value={c.key}>
+                      {c.environment} / {c.suite} / {c.profile} /{" "}
+                      {c.user ?? "per-test accounts"}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p>
+                {selectedEvidence
+                  ? `${selectedEvidence.current ? "Current execution" : "No current proof"} · ${selectedEvidence.state} · ${new Date(selectedEvidence.at).toLocaleString()}${selectedEvidence.partial ? " · partial selection" : ""}. ${!selectedEvidence.current ? "Project, loaded source or run state changed; previous green results are not reused." : ""}`
+                  : "Add reviewed tests and run them against a configured environment."}
+              </p>
+              <small>
+                Evidence stays scoped to this context. Declared coverage is not
+                complete application coverage or release certification.
+              </small>
+            </section>
+          )}
           {page === "quality" && (
             <Quality
               key={JSON.stringify(p.healing)}
@@ -670,7 +733,13 @@ export default function App() {
               save={(test) =>
                 mutate("quick-test", { test }, "Functional test created")
               }
-              run={(input) => mutate("runs", input, "Test started")}
+              run={async (input) => {
+                let id: string | undefined;
+                const ok = await mutate("runs", input, "Test started", (r) => {
+                  if (typeof r.id === "string") id = r.id;
+                });
+                return ok ? id : undefined;
+              }}
               openTest={(id) => edited(p.tests.find((t) => t.id === id))}
               setup={() => setModal("setup")}
               addExpectation={() => setModal("requirement")}
@@ -740,7 +809,7 @@ export default function App() {
                 {[
                   {
                     label: "Requirements covered",
-                    value: pct(data.coverage.riskWeightedAutomation),
+                    value: pct(displayCoverage.riskWeightedAutomation),
                     hint: "Risk-weighted automation coverage",
                     icon: Target,
                     tone: "blue",
@@ -881,7 +950,7 @@ export default function App() {
                     {
                       icon: Target,
                       title: "Close the gaps in your coverage",
-                      description: `${data.coverage.rows.filter((r) => r.gaps.length).length} requirements have review or automation gaps.`,
+                      description: `${displayCoverage.rows.filter((r) => r.gaps.length).length} requirements have review or automation gaps.`,
                       to: "coverage",
                       color: "blue",
                     },
@@ -1370,7 +1439,7 @@ export default function App() {
                   const linked = p.tests.filter((t) =>
                       t.requirementIds.includes(r.id),
                     ),
-                    row = data.coverage.rows.find(
+                    row = displayCoverage.rows.find(
                       (c) => c.requirementId === r.id,
                     )!;
                   return (
@@ -1433,12 +1502,29 @@ export default function App() {
                 "SEE THE WHOLE PICTURE",
                 "Coverage with context.",
                 "Trace each requirement to reviewed tests and execution evidence.",
-                <Download name="superq-coverage.json" value={data.coverage} />,
+                <Download
+                  name="superq-coverage.json"
+                  value={{
+                    ...displayCoverage,
+                    evidenceContext: selectedEvidence
+                      ? {
+                          environment: selectedEvidence.environment,
+                          suite: selectedEvidence.suite,
+                          profile: selectedEvidence.profile,
+                          user: selectedEvidence.user,
+                          at: selectedEvidence.at,
+                          runId: selectedEvidence.runId,
+                          current: selectedEvidence.current,
+                          partial: selectedEvidence.partial,
+                        }
+                      : null,
+                  }}
+                />,
               )}
               <div className="coverage-hero card">
                 <div>
                   <span className="eyebrow">RISK-WEIGHTED AUTOMATION</span>
-                  <h2>{pct(data.coverage.riskWeightedAutomation)}</h2>
+                  <h2>{pct(displayCoverage.riskWeightedAutomation)}</h2>
                   <p>
                     Declared requirements with assertion-bearing automation.
                   </p>
@@ -1449,7 +1535,7 @@ export default function App() {
                     Automation coverage
                   </span>
                   <strong>
-                    {pct(data.coverage.riskWeightedProven)} reviewed & proven
+                    {pct(displayCoverage.riskWeightedProven)} reviewed & proven
                   </strong>
                   <small>
                     Scope: declared requirements and acceptance criteria.
@@ -1463,7 +1549,7 @@ export default function App() {
                   <h2>Requirement-to-test map</h2>
                   <Badge>{p.requirements.length} requirements</Badge>
                 </div>
-                {data.coverage.rows.map((row) => (
+                {displayCoverage.rows.map((row) => (
                   <div className="coverage-row" key={row.requirementId}>
                     <div className="coverage-name">
                       <span className="small-code">{row.requirementId}</span>
@@ -2354,9 +2440,10 @@ export default function App() {
       )}
       {modal === "run" && (
         <RunDialog
-          data={data}
+          data={{ ...data, revision: modalRevision }}
           loading={loading}
           pending={pending.length}
+          onRefresh={() => setModalRevision(data.revision)}
           onClose={() => setModal(null)}
           onRun={async (config) => {
             if (await mutate("runs", config, "Suite execution started")) {
@@ -3511,20 +3598,30 @@ function RunDialog({
   loading,
   pending,
   onClose,
+  onRefresh,
   onRun,
 }: {
   data: Data;
   loading: boolean;
   pending: number;
   onClose: () => void;
+  onRefresh: () => void;
   onRun: (value: Record<string, unknown>) => Promise<void>;
 }) {
   const [environment, setEnvironment] = useState(
       Object.keys(data.project.environments)[0],
     ),
     [account, setAccount] = useState(""),
-    [suite, setSuite] = useState(Object.keys(data.project.suites)[0]),
-    [profile, setProfile] = useState(Object.keys(data.project.browsers)[0]),
+    [suite, setSuite] = useState(
+      Object.keys(data.project.suites).find((s) =>
+        data.project.tests.some((t) => t.suites.includes(s)),
+      ) ?? Object.keys(data.project.suites)[0],
+    ),
+    [profile, setProfile] = useState(
+      Object.keys(data.project.browsers).find(
+        (id) => data.project.browsers[id]?.provider === "local",
+      ) ?? Object.keys(data.project.browsers)[0],
+    ),
     [workers, setWorkers] = useState(
       Math.min(data.project.execution.workers, 16),
     ),
@@ -3532,16 +3629,63 @@ function RunDialog({
     [testIds, setTestIds] = useState<string[]>([]),
     [validateDrafts, setValidateDrafts] = useState(false),
     [captureTrace, setCaptureTrace] = useState(false);
+  const [preflight, setPreflight] = useState<RunPreflight | null>(null),
+    [checking, setChecking] = useState(true),
+    [previewError, setPreviewError] = useState("");
+  const previewInput = JSON.stringify({
+    environment,
+    ...(account ? { user: account } : {}),
+    suite,
+    profile,
+    workers,
+    testIds,
+    validateDrafts,
+    captureTrace,
+    acknowledgeSensitiveTrace: captureTrace,
+    acknowledgeCloud: ack,
+  });
+  useEffect(() => {
+    const controller = new AbortController();
+    setChecking(true);
+    setPreflight(null);
+    setPreviewError("");
+    const timer = setTimeout(() => {
+      void fetch("/api/runs/preflight", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-superq-token": data.token,
+        },
+        body: JSON.stringify({
+          ...JSON.parse(previewInput),
+          revision: data.revision,
+        }),
+        signal: controller.signal,
+      })
+        .then(async (r) => {
+          const value = await r.json();
+          if (!r.ok) throw new Error(value.error ?? "Readiness check failed");
+          if (!controller.signal.aborted) setPreflight(value);
+        })
+        .catch((e) => {
+          if (!controller.signal.aborted) setPreviewError(e.message);
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setChecking(false);
+        });
+    }, 200);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [previewInput, data.token, data.revision]);
   const affected =
     data.plan?.items
       .filter((i) => i.status === "pending")
       .map((i) => i.testId) ?? [];
-  const selectedTests = testIds.length
-    ? testIds
-    : data.project.tests
-        .filter((t) => t.suites.includes(suite))
-        .map((t) => t.id);
-  const selectedPending = selectedTests.some((id) => affected.includes(id));
+  const selectedPending = !!preflight?.issues.some(
+    (i) => i.kind === "maintenance",
+  );
   const cloud = data.project.browsers[profile]?.provider !== "local";
   return (
     <Modal
@@ -3720,6 +3864,82 @@ function RunDialog({
               needs configured credentials/tunnels.
             </label>
           )}
+          <section className="run-preflight" aria-live="polite">
+            <h3>Run readiness</h3>
+            {checking ? (
+              <p>Checking selection, prerequisites, accounts and data…</p>
+            ) : previewError ? (
+              <div>
+                <p role="alert">{previewError}</p>
+                <button className="button" type="button" onClick={onRefresh}>
+                  Refresh run context
+                </button>
+              </div>
+            ) : (
+              preflight && (
+                <>
+                  <p className="preflight-summary">
+                    {preflight.roots.length} selected roots ·{" "}
+                    {preflight.tests.filter((t) => t.dependency).length}{" "}
+                    prerequisites ·{" "}
+                    {
+                      preflight.tests.filter((t) => t.status === "runnable")
+                        .length
+                    }{" "}
+                    configured to run ·{" "}
+                    {
+                      preflight.tests.filter((t) => t.status === "blocked")
+                        .length
+                    }{" "}
+                    blocked ·{" "}
+                    {
+                      preflight.tests.filter((t) => t.status === "skipped")
+                        .length
+                    }{" "}
+                    skipped
+                  </p>
+                  {!!preflight.issues.length && (
+                    <ul>
+                      {preflight.issues.map((i, n) => (
+                        <li className="preflight-issue" key={n}>
+                          {i.testId ? `${i.testId}: ` : ""}
+                          {i.message}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {!!preflight.warnings.length && (
+                    <details>
+                      <summary>
+                        Review {preflight.warnings.length} execution notes
+                      </summary>
+                      <ul>
+                        {preflight.warnings.map((i, n) => (
+                          <li key={n}>
+                            {i.testId ? `${i.testId}: ` : ""}
+                            {i.message}
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                  <details>
+                    <summary>Exact selection and prerequisite cases</summary>
+                    <ul>
+                      {preflight.tests.map((t) => (
+                        <li key={t.id}>
+                          {t.id} · {t.title} ·{" "}
+                          {t.dependency ? "prerequisite · " : ""}
+                          {t.status}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                  <small>{preflight.scope}</small>
+                </>
+              )
+            )}
+          </section>
           <div className="quiet-note">
             <ShieldCheck size={18} />
             <p>
@@ -3731,10 +3951,24 @@ function RunDialog({
         </div>
         <div className="modal-footer">
           <Button onClick={onClose}>Cancel</Button>
+          <small className="run-status" aria-live="polite">
+            {checking
+              ? "Checking readiness…"
+              : preflight
+                ? `${preflight.tests.filter((t) => t.status === "runnable").length} configured · ${preflight.tests.filter((t) => t.status === "blocked").length} blocked · ${preflight.tests.filter((t) => t.status === "skipped").length} skipped`
+                : "Resolve readiness issues"}
+          </small>
           <Button
             type="submit"
             kind="primary"
-            disabled={loading || selectedPending || (cloud && !ack)}
+            disabled={
+              loading ||
+              selectedPending ||
+              (cloud && !ack) ||
+              checking ||
+              !!previewError ||
+              !preflight?.canStart
+            }
           >
             <Play size={16} /> Start run
           </Button>

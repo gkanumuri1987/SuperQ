@@ -17,7 +17,7 @@ test('rejects broken references, cycles, duplicated catalog and locator definiti
   const s=project(); s.locators.copy={...s.locators['health-status']!}; assert.throws(()=>validateProject(s),/Duplicate locator/);
 });
 test('separates declared, automated and proven coverage; missing QE and automation remain visible',()=>{
-  const report=coverage(project()); assert.equal(report.rows[0]!.proven,false); assert.deepEqual(report.rows[2]!.gaps,['missing-qe-review','no-approved-test','missing-asserted-automation','blocker']);
+  const report=coverage(project()); assert.equal(report.rows[0]!.proven,false); assert.deepEqual(report.rows[2]!.gaps,['missing-qe-review','no-approved-test','missing-asserted-automation','blocker','missing-acceptance-criteria']);
   const run=coverage(project(),[{id:'TC-API',status:'passed',durationMs:1}]);assert.equal(run.rows[0]!.executed,true);assert.equal(run.rows[0]!.proven,false); // Execution is not a reviewed business-coverage claim.
 });
 test('data precedence is global < environment < suite < case; missing values fail',()=>{

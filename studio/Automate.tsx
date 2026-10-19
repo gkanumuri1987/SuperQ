@@ -7,7 +7,7 @@ type Props = {
   runs: WorkspaceState["runs"];
   sample: boolean;
   save: (test: Record<string, unknown>) => Promise<boolean>;
-  run: (input: Record<string, unknown>) => Promise<boolean>;
+  run: (input: Record<string, unknown>) => Promise<string | undefined>;
   openTest: (id: string) => void;
   setup: () => void;
   addExpectation: () => void;
@@ -40,7 +40,7 @@ export default function Automate({
     [body, setBody] = useState(""),
     [code, setCode] = useState(200),
     [created, setCreated] = useState(""),
-    [lastRunAt, setLastRunAt] = useState<string | null>(null),
+    [lastJobId, setLastJobId] = useState<string | undefined>(),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [environment, setEnvironment] = useState(
@@ -57,11 +57,12 @@ export default function Automate({
   const local = Object.entries(p.browsers).find(
     ([, b]) => b.provider === "local",
   );
-  const job = created
-    ? runs.find((r) =>
-        lastRunAt
-          ? r.at >= lastRunAt
-          : r.report?.results.some((t) => t.id === created),
+  const job = lastJobId
+    ? runs.find(
+        (r) =>
+          r.id === lastJobId &&
+          r.configuration?.environment === environment &&
+          r.configuration.user === (account || undefined),
       )
     : undefined;
   const result =
@@ -434,10 +435,10 @@ export default function Automate({
                 busy || !local || runs.some((r) => r.state === "running")
               }
               onClick={async () => {
-                setLastRunAt(new Date().toISOString());
+                setLastJobId(undefined);
                 setBusy(true);
                 try {
-                  await run({
+                  const id = await run({
                     environment,
                     ...(account ? { user: account } : {}),
                     suite: p.tests.find((t) => t.id === created)?.suites[0],
@@ -446,6 +447,7 @@ export default function Automate({
                     testIds: [created],
                     validateDrafts: true,
                   });
+                  setLastJobId(id);
                 } finally {
                   setBusy(false);
                 }
@@ -471,6 +473,10 @@ export default function Automate({
           )}
           {result && (
             <div className={`automate-result ${result.status}`}>
+              <p>
+                Run {job!.id.slice(0, 8)} · {environment} ·{" "}
+                {new Date(job!.at).toLocaleString()}
+              </p>
               <strong>
                 {result.status === "passed"
                   ? "The check passed"
@@ -491,7 +497,7 @@ export default function Automate({
             disabled={runs.some((r) => r.state === "running")}
             onClick={() => {
               setCreated("");
-              setLastRunAt(null);
+              setLastJobId(undefined);
               setError("");
             }}
           >

@@ -1,3 +1,6 @@
+import { studioEvidence } from "./studio-evidence.js";
+import { workQueue } from "./work-queue.js";
+import { RunRequest, prepareRun, runPreflight } from "./run-preflight.js";
 import {
   extractSetup,
   setupCatalog,
@@ -106,6 +109,7 @@ export type WorkspaceState = {
     state: "running" | "completed" | "failed";
     at: string;
     report?: Report;
+    configuration?: RunRequest;
     draftValidation?: boolean;
     traces?: TraceArtifact[];
     traceWarnings?: string[];
@@ -359,20 +363,8 @@ export async function startWorkspace(
     >;
   }
   async function launchRun(data: Record<string, unknown>, intakeTrial = false) {
-    const input = z
-      .object({
-        environment: z.string(),
-        user: z.string().min(1).optional(),
-        suite: z.string(),
-        profile: z.string(),
-        workers: z.number().int().min(1).max(16),
-        testIds: z.array(z.string()).default([]),
-        validateDrafts: z.boolean().default(false),
-        acknowledgeCloud: z.boolean().optional(),
-        captureTrace: z.boolean().default(false),
-        acknowledgeSensitiveTrace: z.boolean().default(false),
-      })
-      .parse(data);
+    const input = RunRequest.parse(data);
+    const prepared = prepareRun(state.project, input, intakeTrial);
     const profile = state.project.browsers[input.profile];
     if (
       !Object.hasOwn(state.project.browsers, input.profile) ||
@@ -391,24 +383,7 @@ export async function startWorkspace(
       throw new Error(
         "Confirm that private traces can contain application secrets and personal data",
       );
-    const selected = new Set(
-      input.testIds.length
-        ? input.testIds
-        : state.project.tests
-            .filter((t) => t.suites.includes(input.suite))
-            .map((t) => t.id),
-    );
-    let more = true;
-    while (more) {
-      more = false;
-      for (const t of state.project.tests)
-        if (selected.has(t.id))
-          for (const dep of t.dependsOn)
-            if (!selected.has(dep)) {
-              selected.add(dep);
-              more = true;
-            }
-    }
+    const selected = new Set(prepared.selection.tests.map((t) => t.id));
     if (
       state.plan?.items.some(
         (i) => i.status === "pending" && selected.has(i.testId),
@@ -431,31 +406,14 @@ export async function startWorkspace(
         state.planning,
         state.sourceSnapshot,
       );
-    const project = validateProject(structuredClone(state.project));
-    if (intakeTrial)
-      Object.assign(project.execution, {
-        includeTags: [],
-        excludeTags: [],
-        shard: undefined,
-        retries: 0,
-        maxFailures: 0,
-        failOnFlaky: true,
-      });
-    project.execution.workers = input.workers;
-    project.execution.user = input.user;
-    project.execution.testIds = input.testIds;
-    if (input.validateDrafts)
-      for (const test of project.tests)
-        if (selected.has(test.id) && test.status === "draft") {
-          test.status = "approved";
-          delete test.review;
-        }
+    const project = prepared.project;
     const job: WorkspaceState["runs"][number] = {
       id: randomUUID(),
       state: "running",
       sourceFingerprint: projectFingerprint(state.project),
       sourceContext: intakeSources(state.planning, state.sourceSnapshot),
       draftValidation: input.validateDrafts,
+      configuration: input,
       at: new Date().toISOString(),
     };
     state.runs.unshift(job);
@@ -859,8 +817,19 @@ export async function startWorkspace(
               );
           }
 
+        const evidence = studioEvidence(
+          state.project,
+          state.runs,
+          intakeSources(state.planning, state.sourceSnapshot),
+        );
         json(res, 200, {
           ...state,
+          evidence,
+          workQueue: workQueue(
+            state,
+            evidence,
+            intakeSources(state.planning, state.sourceSnapshot),
+          ),
           token,
           recording: recording
             ? {
@@ -923,16 +892,7 @@ export async function startWorkspace(
                 user: signIn.user,
               }
             : null,
-          coverage: coverage(
-            state.project,
-            state.runs.find(
-              (r) =>
-                r.report &&
-                !r.draftValidation &&
-                r.report.provenance.projectFingerprint ===
-                  projectFingerprint(state.project),
-            )?.report?.runs[0]?.results ?? [],
-          ),
+          coverage: evidence.contexts[0]?.coverage ?? coverage(state.project),
           reviews: Object.fromEntries(
             state.project.tests.map((t) => [
               t.id,
@@ -1054,10 +1014,55 @@ export async function startWorkspace(
           });
           return;
         }
-        if (busy && path !== "/api/ai") {
+        if (busy && !["/api/ai", "/api/runs/preflight"].includes(path)) {
           json(res, 409, {
             error: "A run is active. Wait before changing the project.",
           });
+          return;
+        }
+        if (path === "/api/runs/preflight") {
+          const input = RunRequest.parse(data);
+          let intakeError: string | undefined;
+          try {
+            const selected = prepareRun(
+              state.project,
+              input,
+            ).selection.tests.map((t) => t.id);
+            if (
+              state.intake?.generated?.testIds.some(
+                (id) =>
+                  selected.includes(id) &&
+                  (input.validateDrafts ||
+                    state.project.tests.find((t) => t.id === id)?.status ===
+                      "draft"),
+              )
+            )
+              assertReviewed(
+                state.intake,
+                state.project,
+                state.planning,
+                state.sourceSnapshot,
+              );
+          } catch {
+            intakeError =
+              "Run selection or generated intake review is stale. Check selection and review the current plan.";
+          }
+          const preview = await runPreflight(state.project, input, {
+            sessionDirectory,
+            pendingTestIds: state.plan?.items
+              .filter((i) => i.status === "pending")
+              .map((i) => i.testId),
+            intakeError,
+          });
+          if (busy) {
+            preview.canStart = false;
+            preview.issues.unshift({
+              kind: "active-run",
+              message: "Wait for the active run to complete.",
+              target: "runs",
+            });
+          }
+          json(res, 200, preview);
           return;
         }
         if (path === "/api/framework-check") {

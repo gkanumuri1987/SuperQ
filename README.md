@@ -28,6 +28,10 @@ Top shortcuts now connect generation, catalog reuse, reports, feature coverage a
 
 **Start from sources** can record anonymous or authenticated web interactions into an editable, catalog-backed draft. Configured form/TOTP login or saved scoped SSO is verified before capture; sign-in steps stay outside the draft. Reusable browser setup flows run with each test’s account/data. Add and order shared setups, or expand them into editable case steps. Changed shared definitions return affected tests to review and identify downstream dependencies. Entered values become test-data placeholders; expected results come from the QE. **Run** offers opt-in private Playwright traces with authenticated downloads and expiry. Optional local Ollama coordination runs separate analyst, designer and reviewer calls, then stages evidence-backed proposals for QE review. See [workflow, limits and validation](docs/recording-traces-and-agents.md).
 
+## Clear next steps and execution confidence
+
+Automate now includes a prioritized work queue for blockers, missing coverage, review, execution and maintenance. Run checks configuration automatically before execution and previews exact roots, prerequisites, skipped cases and missing data/accounts. Coverage views select a specific environment/suite/browser/account stream and reject stale source evidence. Requirements without acceptance criteria cannot appear fully covered. See the [QE architecture review, implemented fixes and remaining gaps](docs/studio-qe-architecture-review.md).
+
 ## Run locally
 
 Requires Node.js 22.12+ and Git.

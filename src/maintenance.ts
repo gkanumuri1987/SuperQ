@@ -42,6 +42,7 @@ const shared = (p: Project) =>
     evidence: p.evidence,
     catalog: p.catalog,
     locators: p.locators,
+    webSetups: p.webSetups,
   });
 export function compareProjects(
   base: Project,
@@ -78,6 +79,28 @@ export function compareProjects(
       (key) => digest(base.locators[key]) !== digest(candidate.locators[key]),
     ),
   );
+  const changedSetups = new Set(
+    [
+      ...Object.keys(base.webSetups ?? {}),
+      ...Object.keys(candidate.webSetups ?? {}),
+    ].filter(
+      (id) =>
+        digest(base.webSetups?.[id]) !== digest(candidate.webSetups?.[id]),
+    ),
+  );
+  const setupIds = (t: TestCase) =>
+    t.steps.flatMap((s) =>
+      Array.isArray(s.input.setupIds)
+        ? s.input.setupIds.filter((id): id is string => typeof id === "string")
+        : [],
+    );
+  const setupLocators = (t: TestCase) =>
+    setupIds(t).flatMap(
+      (id) =>
+        base.webSetups?.[id]?.commands.flatMap((c) =>
+          "locator" in c ? [c.locator] : [],
+        ) ?? [],
+    );
   const actions = new Set(
     base.catalog
       .filter(
@@ -90,6 +113,8 @@ export function compareProjects(
     base.tests
       .filter(
         (t) =>
+          setupIds(t).some((id) => changedSetups.has(id)) ||
+          setupLocators(t).some((id) => locators.has(id)) ||
           t.requirementIds.some((id) => changedRequirements.includes(id)) ||
           t.steps.some(
             (s) =>
@@ -136,8 +161,20 @@ export function compareProjects(
             "Requirement removed — resolve mapping",
         });
       }
+      for (const id of setupIds(t).filter((id) => changedSetups.has(id))) {
+        reasons.push(`Shared setup ${id} changed`);
+        changes.push({
+          kind: "Workflow",
+          label: `Shared setup ${id}`,
+          before: JSON.stringify(base.webSetups?.[id], null, 2) ?? "No setup",
+          after:
+            JSON.stringify(candidate.webSetups?.[id], null, 2) ??
+            "Setup removed",
+        });
+      }
       for (const l of locators)
         if (
+          setupLocators(t).includes(l) ||
           t.steps.some((s) =>
             JSON.stringify(s.input).includes(JSON.stringify(l)),
           )
@@ -242,6 +279,7 @@ export function stageChanges(
   next.evidence = plan.candidate.evidence;
   next.locators = plan.candidate.locators;
   next.catalog = plan.candidate.catalog;
+  next.webSetups = structuredClone(plan.candidate.webSetups);
   for (const item of plan.items) {
     const index = next.tests.findIndex((t) => t.id === item.testId);
     if (index < 0) continue;
