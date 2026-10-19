@@ -15,7 +15,8 @@ test("Studio guides setup, change review, test editing and real focused executio
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   try {
-    await page.goto(app.url);
+    await page.goto(`${app.url}/#overview`);
+    await page.getByRole("button", { name: "More tools", exact: true }).click();
     await page
       .getByRole("heading", {
         name: "A little less effort. A lot more confidence.",
@@ -266,6 +267,94 @@ test("Coverage Lab generates constrained data, saves the model and keeps proof u
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
       true,
+    );
+  } finally {
+    await browser.close();
+    await app.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("simple start creates and tries API and screen checks without catalog or JSON setup", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "superq-simple-"));
+  const app = await startWorkspace({ port: 0, file: join(dir, "state.json") });
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    await page.goto(app.url);
+    await page
+      .getByRole("heading", { name: "What would you like to test?" })
+      .waitFor();
+    assert.equal(
+      await page
+        .getByRole("button", { name: "Coverage Lab", exact: true })
+        .count(),
+      0,
+    );
+    await page
+      .getByRole("button", { name: "Through an API", exact: true })
+      .click();
+    await page
+      .getByLabel("Functional expectation")
+      .selectOption(JSON.stringify(["REQ-104", "AC-5"]));
+    await page.getByLabel("API path", { exact: true }).fill("api/inventory");
+    await page.getByLabel("Response field", { exact: true }).fill("available");
+    await page.getByLabel("Expected value", { exact: true }).fill("true");
+    const creation = page.waitForResponse((r) =>
+      r.url().endsWith("/api/quick-test"),
+    );
+    await page.getByRole("button", { name: "Create functional test" }).click();
+    const createdResponse = await creation;
+    assert.equal(createdResponse.status(), 200, await createdResponse.text());
+    await page
+      .getByRole("heading", { name: "Your test is ready to try." })
+      .waitFor();
+    await page
+      .getByRole("button", { name: "Try this test", exact: true })
+      .click();
+    await page.getByText("The check passed", { exact: true }).waitFor();
+    let state = await (await fetch(`${app.url}/api/workspace`)).json();
+    let t = state.project.tests.at(-1);
+    assert.equal(t.status, "draft");
+    assert.equal(t.review, undefined);
+    assert.equal(state.runs[0].draftValidation, true);
+    assert.equal(state.runs[0].report.results[0].status, "passed");
+    await page.getByRole("button", { name: "Add another test" }).click();
+    await page
+      .getByRole("button", { name: "On a screen", exact: true })
+      .click();
+    await page
+      .getByLabel("Functional expectation")
+      .selectOption(JSON.stringify(["REQ-101", "AC-2"]));
+    await page.getByLabel("Page path", { exact: true }).fill("checkout");
+    await page.getByLabel("Button to click (optional)").fill("Place order");
+    await page
+      .getByLabel("Expected text", { exact: true })
+      .fill("Order confirmed");
+
+    const secondCreation = page.waitForResponse((r) =>
+      r.url().endsWith("/api/quick-test"),
+    );
+    await page.getByRole("button", { name: "Create functional test" }).click();
+    const secondResponse = await secondCreation;
+    assert.equal(secondResponse.status(), 200, await secondResponse.text());
+    await page
+      .getByRole("heading", { name: "Your test is ready to try." })
+      .waitFor();
+    await page
+      .getByRole("button", { name: "Try this test", exact: true })
+      .click();
+    await page.getByText("The check passed", { exact: true }).waitFor();
+    state = await (await fetch(`${app.url}/api/workspace`)).json();
+    t = state.project.tests.at(-1);
+    assert.equal(t.status, "draft");
+    assert.equal(state.runs[0].report.results[0].id, t.id);
+    assert.equal(state.runs[0].report.results[0].status, "passed");
+    await page.getByRole("button", { name: "More tools", exact: true }).click();
+    assert.ok(
+      await page
+        .getByRole("button", { name: "Coverage Lab", exact: true })
+        .isVisible(),
     );
   } finally {
     await browser.close();

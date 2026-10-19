@@ -13,7 +13,7 @@ export const Project = z.object({
   evidence: z.array(Evidence).default([]),
   requirements: z.array(z.object({ id, title: id, risk: z.enum(['critical','high','medium','low']), criteria:z.array(z.object({id,title:id}).strict()).default([]), evidenceIds: z.array(id).min(1) }).strict()),
   catalog: z.array(z.object({ id, kind: z.enum(['api','web','postgres','mongo','snowflake','custom']), operation: id, description: id }).strict()),
-  locators: z.record(z.string(), z.object({ strategy: z.enum(['role','label','testId']), value: id, name: z.string().optional() }).strict()).default({}),
+  locators: z.record(z.string(), z.object({ strategy: z.enum(['role','label','testId','text']), value: id, name: z.string().optional() }).strict()).default({}),
   tests: z.array(z.object({ id, title: id, origin: z.enum(['qe','ai']), status: z.enum(['draft','approved']), review:z.object({reviewer:id,at:z.iso.datetime(),digest:z.string().regex(/^[a-f0-9]{64}$/).optional()}).strict().optional(), covers:z.record(z.string(),z.array(id)).default({}), requirementIds: z.array(id).min(1), evidenceIds: z.array(id).min(1), suites: z.array(id).min(1), tags: z.array(id).default([]), retrySafe: z.boolean().default(false), dependsOn: z.array(id).default([]), blockedBy: z.array(id).default([]), data: z.record(z.string(), z.unknown()).default({}), steps: z.array(Step).default([]) }).strict()),
   release: ReleasePolicy.optional(),
   browsers: z.record(z.string(), BrowserProfile).default({local: BrowserProfile.parse({provider:"local"})}),

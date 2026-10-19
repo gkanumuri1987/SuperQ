@@ -1,0 +1,169 @@
+.automate-home {
+  max-width: 850px;
+  margin: 12px auto;
+}
+.automate-intro {
+  margin-bottom: 28px;
+}
+.automate-intro h1 {
+  font-size: 36px;
+  margin: 14px 0;
+}
+.automate-home p {
+  color: #667084;
+  line-height: 1.7;
+  margin: 12px 0;
+}
+.automate-card {
+  background: white;
+  border: 1px solid #e3e7ed;
+  border-radius: 16px;
+  padding: 32px;
+}
+.automate-card h2 {
+  font-size: 19px;
+  margin-bottom: 22px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.automate-card h2:not(:first-child) {
+  margin-top: 32px;
+}
+.automate-card h2 > span {
+  background: #edf2ff;
+  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  color: #315ff0;
+  font-size: 14px;
+}
+.automate-card label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  margin: 18px 0;
+}
+.automate-card input,
+.automate-card select,
+.automate-card textarea {
+  width: 100%;
+  border: 1px solid #d4dce7;
+  border-radius: 8px;
+  padding: 12px;
+  background: white;
+  color: #24324a;
+  font: inherit;
+}
+.automate-card small {
+  font-weight: 400;
+  line-height: 1.6;
+  color: #6a7585;
+}
+.automate-choice {
+  display: flex;
+  background: #f0f3f9;
+  padding: 5px;
+  border-radius: 10px;
+  gap: 5px;
+  margin-bottom: 22px;
+}
+.automate-choice button {
+  flex: 1;
+  padding: 12px;
+  border-radius: 8px;
+  font-weight: 600;
+}
+.automate-choice button[aria-pressed="true"] {
+  background: #fff;
+  color: #315ff0;
+  box-shadow: 0 1px 5px #22334419;
+}
+.automate-field-row {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+.automate-field-row label {
+  flex: 1;
+  min-width: 0;
+}
+.automate-card details {
+  border-top: 1px solid #e8ebf1;
+  padding: 16px 0;
+  margin-top: 18px;
+  margin-bottom: 16px;
+}
+.automate-card summary {
+  color: #526580;
+  cursor: pointer;
+}
+.automate-card > .button.primary {
+  margin-top: 24px;
+}
+.automate-note,
+.automate-footer {
+  font-size: 12px;
+}
+.automate-error {
+  color: #ae263b !important;
+}
+.automate-sample {
+  font-size: 12px;
+}
+.automate-sample button {
+  color: #315ff0;
+  text-decoration: underline;
+}
+.automate-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 24px 0;
+}
+.automate-result {
+  padding: 18px;
+  border: 1px solid #ead4b2;
+  border-radius: 10px;
+  margin: 24px 0;
+  background: #fff8ee;
+}
+.automate-result.passed {
+  background: #effaf5;
+  border-color: #b4ddcb;
+}
+.more-tools {
+  margin: 18px 4px;
+}
+.more-tools > summary {
+  font-size: 12px;
+  padding: 12px;
+  cursor: pointer;
+  color: #a7b3c6;
+}
+.more-tools[open] > summary {
+  color: white;
+}
+@media (max-width: 600px) {
+  .automate-home {
+    margin: 0;
+  }
+  .automate-intro h1 {
+    font-size: 28px;
+  }
+  .automate-card {
+    padding: 20px;
+  }
+  .automate-field-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+  }
+  .automate-choice button {
+    padding: 10px 4px;
+  }
+}

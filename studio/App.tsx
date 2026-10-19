@@ -1,3 +1,4 @@
+import Automate from "./Automate";
 import CoverageLab from "./CoverageLab";
 import PlanningScreen from "./Planning";
 import {
@@ -69,7 +70,10 @@ type Data = WorkspaceState & {
 const navigation = [
   {
     label: "Workspace",
-    items: [{ id: "overview", label: "Overview", icon: LayoutDashboard }],
+    items: [
+      { id: "automate", label: "Automate", icon: Zap },
+      { id: "overview", label: "Overview", icon: LayoutDashboard },
+    ],
   },
   {
     label: "Design & build",
@@ -273,7 +277,7 @@ function Download({ name, value }: { name: string; value: unknown }) {
 }
 export default function App() {
   const [data, setData] = useState<Data | null>(null),
-    [page, setPage] = useState(location.hash.slice(1) || "overview"),
+    [page, setPage] = useState(location.hash.slice(1) || "automate"),
     [error, setError] = useState(""),
     [toast, setToast] = useState(""),
     [loading, setLoading] = useState(false),
@@ -287,6 +291,7 @@ export default function App() {
     [profile, setProfile] = useState("local"),
     [resolution, setResolution] = useState("");
   const [modalRevision, setModalRevision] = useState(0);
+  const [moreTools, setMoreTools] = useState(false);
   function setModal(value: string | null) {
     setModalRevision(data?.revision ?? 0);
     setModalState(value);
@@ -309,7 +314,7 @@ export default function App() {
     void refresh().catch((e) => setError(e.message));
     const timer = setInterval(() => void refresh().catch(() => {}), 3000);
     const hash = () => {
-      setPage(location.hash.slice(1) || "overview");
+      setPage(location.hash.slice(1) || "automate");
       setSearch("");
       setFilter("all");
     };
@@ -437,7 +442,7 @@ export default function App() {
       </button>
       {mobile && <div className="nav-scrim" onClick={() => setMobile(false)} />}
       <aside className={`sidebar ${mobile ? "open" : ""}`}>
-        <a className="brand" href="#overview" aria-label="SuperQ home">
+        <a className="brand" href="#automate" aria-label="SuperQ home">
           <span className="brand-symbol">
             S<span />
           </span>
@@ -457,7 +462,25 @@ export default function App() {
           <ChevronDown size={15} />
         </button>
         <nav aria-label="Primary navigation">
-          {navigation.map((group) => (
+          {(moreTools
+            ? navigation
+            : [
+                {
+                  label: "Your workflow",
+                  items: navigation
+                    .flatMap((g) => g.items)
+                    .filter((i) =>
+                      [
+                        "automate",
+                        "tests",
+                        "runs",
+                        "maintenance",
+                        "connections",
+                      ].includes(i.id),
+                    ),
+                },
+              ]
+          ).map((group) => (
             <div className="nav-group" key={group.label}>
               <span>{group.label}</span>
               {group.items.map((item) => (
@@ -476,6 +499,14 @@ export default function App() {
               ))}
             </div>
           ))}
+          <button
+            className="nav-link more-tools-toggle"
+            aria-expanded={moreTools}
+            onClick={() => setMoreTools(!moreTools)}
+          >
+            <Settings2 size={18} />
+            {moreTools ? "Fewer tools" : "More tools"}
+          </button>
         </nav>
         <div className="sidebar-bottom">
           <button onClick={() => setModal("guide")}>
@@ -557,6 +588,20 @@ export default function App() {
                   "Coverage design saved",
                 )
               }
+            />
+          )}
+          {page === "automate" && (
+            <Automate
+              project={p}
+              runs={data.runs}
+              sample={data.sample}
+              save={(test) =>
+                mutate("quick-test", { test }, "Functional test created")
+              }
+              run={(input) => mutate("runs", input, "Test started")}
+              openTest={(id) => edited(p.tests.find((t) => t.id === id))}
+              setup={() => setModal("setup")}
+              addExpectation={() => setModal("requirement")}
             />
           )}
           {page === "overview" && (

@@ -56,3 +56,7 @@ React/Vite local workspace with setup wizard, requirements, visual API/browser t
 ## Competitive review and coverage design (implemented)
 
 See [the primary-source landscape review](competitive-review.md) for the current delivery order and measurable exits. Coverage Lab adds bounded deterministic pairwise datasets, explicit forbidden combinations, feasible-obligation counts, unreachable-value diagnostics, source context, local model persistence and JSON exports. It is available through Studio and CLI, uses no LLM call, and never inflates application coverage. Native tracker sync, semantic knowledge analysis and evaluated intent-to-executable generation remain the next substantial milestones.
+
+## Product priority: easy functional automation
+
+The default Automate screen and simplified navigation now put common functional checks ahead of specialist configuration. Business expectations and application setup are prerequisites; QE authors do not need to choose catalog action IDs, locator IDs, workers or browser capabilities for the shortcut. Subsequent work should prioritize recorder-assisted capture and direct manual-case-to-working-test flow, with measured reviewer effort and correction rates, before adding more top-level tools. See [the workflow](easy-automation.md).

@@ -1,3 +1,4 @@
+import { createQuickTest } from "./quick-test.js";
 import { TestDesign, designPairwise } from "./test-design.js";
 import {
   createServer,
@@ -401,7 +402,12 @@ export async function startWorkspace(
           });
           return;
         }
-        if (path === "/api/test-design") {
+        if (path === "/api/quick-test") {
+          change(
+            "Functional test created",
+            createQuickTest(state.project, data.test),
+          );
+        } else if (path === "/api/test-design") {
           const baseDesign =
             data.baseDesign === null ? null : TestDesign.parse(data.baseDesign);
           if (

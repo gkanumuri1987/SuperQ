@@ -49,10 +49,10 @@ export function createAdapters(rawProfile:unknown={provider:'local'}, connector:
       for(const c of i.commands) {
         if(c.type==='goto') { const url=new URL(c.path,ctx.baseURL); if(url.origin!==origin) throw new Error('Cross-origin navigation denied'); await page.goto(url.href); continue; }
         const def=ctx.project.locators[c.locator]; if(!def) throw new Error(`Unknown locator ${c.locator}`);
-        const locator=def.strategy==='testId'?page.getByTestId(def.value):def.strategy==='label'?page.getByLabel(def.value,{exact:true}):page.getByRole(def.value as Parameters<typeof page.getByRole>[0],{name:def.name,exact:true});
+        const locator=def.strategy==='text'?page.getByText(def.value,{exact:true}):def.strategy==='testId'?page.getByTestId(def.value):def.strategy==='label'?page.getByLabel(def.value,{exact:true}):page.getByRole(def.value as Parameters<typeof page.getByRole>[0],{name:def.name,exact:true});
         if(c.type==='click') await locator.click();
         else if(c.type==='fill') await locator.fill(c.value);
-        else if(c.type==='expectText') {await expect(locator).toHaveText(c.value,{timeout:c.timeoutMs});text[c.locator]=await locator.innerText();}
+        else if(c.type==='expectText') {await expect(locator).toBeVisible({timeout:c.timeoutMs});await expect(locator).toHaveText(c.value,{timeout:c.timeoutMs});text[c.locator]=await locator.innerText();}
         else { await locator.waitFor({state:'visible'}); text[c.locator]=await locator.innerText(); }
       }
       return {url:page.url(),text};

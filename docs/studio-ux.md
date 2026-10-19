@@ -10,13 +10,17 @@ npm run studio
 
 Open `http://127.0.0.1:4310`. To serve built assets, run `npm run build` then `npm run studio:serve`. Override the port with `SUPERQ_PORT`. Private state, review history and run reports are saved under `.superq/workspace/`; they are Git-ignored. The server binds only to loopback. Stop it with Ctrl+C. A build requires Node.js 22.12+ (or a supported newer version) for Vite.
 
-![Studio overview](images/studio-overview.png)
+The default **Automate** page provides the shortest path for common functional checks. Choose an expectation, describe the interaction and try the test. Routine navigation stays compact; specialist screens are available under **More tools**. See [the simple workflow](easy-automation.md).
+
+![Simple functional automation](images/studio-automate.png)
+
+[Studio overview](images/studio-overview.png)
 
 [Maintenance comparison](images/studio-maintenance.png) · [Visual test builder](images/studio-builder.png)
 
 ## Experience principles
 
-- Start from the next useful action, with a visible five-stage path: context → design → automation → execution → maintenance.
+- Start from a functional expectation and a useful working check; reveal specialist configuration only when needed.
 - Keep business intent, acceptance criteria, evidence, actions and expected outcomes connected.
 - Prefer visual forms for HTTP requests, browser steps and assertions, while preserving an inspectable JSON escape hatch.
 - Show saved, loading, empty, validation-error and conflict states. Reject stale writes instead of overwriting newer work.
