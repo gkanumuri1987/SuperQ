@@ -1,3 +1,4 @@
+import { setupImpact } from "../src/setup-impact";
 import { useState } from "react";
 import type { Project } from "../src/model";
 type Definition = NonNullable<Project["webSetups"]>[string];
@@ -56,6 +57,7 @@ function Editor({
       ...draft,
       commands: draft.commands.map((c, i) => (i === index ? command : c)),
     });
+  const impact = setupImpact(project, id);
   return (
     <details>
       <summary>
@@ -65,6 +67,12 @@ function Editor({
         {tests.map((t) => t.id).join(", ") ||
           "No tests reference this setup yet."}
       </p>
+      {!!impact.dependentTests.length && (
+        <p role="status">
+          Downstream tests that may be blocked pending prerequisite review and
+          rerun: {impact.dependentTests.join(", ")}.
+        </p>
+      )}
       <form
         className="form-stack"
         onSubmit={async (e) => {
@@ -206,7 +214,10 @@ function Editor({
         >
           Add setup command
         </button>
-        <button className="button primary" disabled={pending}>
+        <button
+          className="button primary"
+          disabled={pending || JSON.stringify(draft) === JSON.stringify(base)}
+        >
           Save setup and mark affected tests for review
         </button>
       </form>

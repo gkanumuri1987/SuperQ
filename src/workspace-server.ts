@@ -1,4 +1,10 @@
-import { extractSetup, setupCatalog } from "./web-setups.js";
+import {
+  extractSetup,
+  setupCatalog,
+  attachSetup,
+  orderSetups,
+  inlineSetups,
+} from "./web-setups.js";
 import { recordingContext } from "./web-auth.js";
 import { startRecording } from "./recorder.js";
 import { TraceStore, type TraceArtifact } from "./trace-artifacts.js";
@@ -1121,8 +1127,13 @@ export async function startWorkspace(
               : undefined;
           if (!old || canonical(data.base) !== canonical(old))
             throw new Error("Shared setup changed; refresh before editing");
+          const definition = WebSetup.parse(data.definition);
+          if (canonical(definition) === canonical(old)) {
+            json(res, 200, { unchanged: true });
+            return;
+          }
           const p = structuredClone(state.project);
-          p.webSetups![id] = WebSetup.parse(data.definition);
+          p.webSetups![id] = definition;
           for (const test of p.tests)
             if (
               test.steps.some(
@@ -1166,7 +1177,13 @@ export async function startWorkspace(
           state.intake.context.project = projectFingerprint(state.project);
           delete state.intake.review;
           candidate.recipe = recipe;
-        } else if (path === "/api/setups/apply") {
+        } else if (
+          [
+            "/api/setups/apply",
+            "/api/setups/order",
+            "/api/setups/inline",
+          ].includes(path)
+        ) {
           if (!state.intake || state.intake.generated)
             throw new Error("Analyze a fresh intake plan");
           assertPlanCurrent(
@@ -1178,15 +1195,23 @@ export async function startWorkspace(
           const candidate = state.intake.candidates.find(
             (c) => c.id === data.candidateId,
           );
-          if (candidate?.recipe?.kind !== "web")
-            throw new Error("Choose a mapped web case");
-          const id = z.string().parse(data.id);
-          if (!Object.hasOwn(state.project.webSetups ?? {}, id))
-            throw new Error("Unknown web setup");
-          updateCandidate({
-            candidateId: candidate.id,
-            patch: { recipe: { ...candidate.recipe, setupIds: [id] } },
-          });
+          if (!candidate?.recipe) throw new Error("Choose a mapped web case");
+          const recipe = Recipe.parse(
+            path === "/api/setups/apply"
+              ? attachSetup(
+                  state.project,
+                  candidate.recipe,
+                  z.string().parse(data.id),
+                )
+              : path === "/api/setups/order"
+                ? orderSetups(state.project, candidate.recipe, data.setupIds)
+                : inlineSetups(state.project, candidate.recipe),
+          );
+          if (canonical(recipe) === canonical(candidate.recipe)) {
+            json(res, 200, { unchanged: true });
+            return;
+          }
+          updateCandidate({ candidateId: candidate.id, patch: { recipe } });
         } else if (path === "/api/recorder/start") {
           if (!state.intake || state.intake.generated)
             throw new Error("Analyze a fresh intake plan first");

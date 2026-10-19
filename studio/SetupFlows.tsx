@@ -19,6 +19,14 @@ export default function SetupFlows({
       state.intake?.candidates.filter((c) => c.recipe?.kind === "web") ?? [],
     selected = cases.find((c) => c.id === candidateId) ?? cases[0];
   const setups = Object.entries(state.project.webSetups ?? {});
+  const expandedCount =
+    selected?.recipe?.kind === "web"
+      ? selected.recipe.commands.length +
+        (selected.recipe.setupIds ?? []).reduce(
+          (n, id) => n + (state.project.webSetups?.[id]?.commands.length ?? 0),
+          0,
+        )
+      : 0;
   async function send(path: string, data: Record<string, unknown>) {
     setPending(true);
     try {
@@ -39,6 +47,7 @@ export default function SetupFlows({
       <label>
         Mapped case for setup
         <select
+          aria-label="Mapped case for setup"
           value={selected?.id ?? ""}
           onChange={(e) => setCandidate(e.target.value)}
         >
@@ -52,6 +61,89 @@ export default function SetupFlows({
           ))}
         </select>
       </label>
+      {selected?.recipe?.kind === "web" &&
+        !!selected.recipe.setupIds?.length && (
+          <div>
+            <h3>Setup order</h3>
+            <ol>
+              {selected.recipe.setupIds.map((id, index) => (
+                <li key={id}>
+                  <strong>{state.project.webSetups?.[id]?.title ?? id}</strong>{" "}
+                  · {id}
+                  <button
+                    className="button"
+                    type="button"
+                    aria-label={`Move setup ${id} earlier`}
+                    disabled={disabled || pending || index === 0}
+                    onClick={() => {
+                      if (selected.recipe?.kind !== "web") return;
+                      const setupIds = [...selected.recipe.setupIds!];
+                      [setupIds[index - 1], setupIds[index]] = [
+                        setupIds[index]!,
+                        setupIds[index - 1]!,
+                      ];
+                      void send("setups/order", {
+                        candidateId: selected.id,
+                        setupIds,
+                      });
+                    }}
+                  >
+                    Move earlier
+                  </button>{" "}
+                  <button
+                    className="button"
+                    type="button"
+                    aria-label={`Move setup ${id} later`}
+                    disabled={
+                      disabled ||
+                      pending ||
+                      index ===
+                        (selected.recipe?.kind === "web"
+                          ? selected.recipe.setupIds!.length
+                          : 0) -
+                          1
+                    }
+                    onClick={() => {
+                      if (selected.recipe?.kind !== "web") return;
+                      const setupIds = [...selected.recipe.setupIds!];
+                      [setupIds[index], setupIds[index + 1]] = [
+                        setupIds[index + 1]!,
+                        setupIds[index]!,
+                      ];
+                      void send("setups/order", {
+                        candidateId: selected.id,
+                        setupIds,
+                      });
+                    }}
+                  >
+                    Move later
+                  </button>
+                </li>
+              ))}
+            </ol>
+            <button
+              className="button"
+              disabled={disabled || pending || expandedCount > 100}
+              onClick={() =>
+                void send("setups/inline", { candidateId: selected.id })
+              }
+            >
+              Make setup steps editable in this case
+            </button>
+            {expandedCount > 100 && (
+              <p>
+                The editable copy would contain {expandedCount} commands. Keep
+                shared references or split the case to stay within the
+                100-command limit.
+              </p>
+            )}
+            <p>
+              This copies all setup steps into the case in their current order.
+              Shared definitions stay in the catalog. Case assertions and data
+              variables are preserved; plan review is cleared.
+            </p>
+          </div>
+        )}
       {selected?.recipe?.kind === "web" && (
         <ol>
           {selected.recipe.commands.map((c, i) => (
@@ -133,6 +225,7 @@ export default function SetupFlows({
           <label>
             Existing setup
             <select
+              aria-label="Existing setup"
               value={existing || setups[0]?.[0]}
               onChange={(e) => setExisting(e.target.value)}
             >
@@ -145,9 +238,18 @@ export default function SetupFlows({
           </label>
           <button
             className="button"
-            disabled={disabled || pending || !selected}
+            disabled={
+              disabled ||
+              pending ||
+              !selected ||
+              (selected.recipe?.kind === "web" &&
+                (selected.recipe.setupIds?.includes(
+                  existing || setups[0]?.[0] || "",
+                ) ||
+                  (selected.recipe.setupIds?.length ?? 0) >= 4))
+            }
           >
-            Use this setup in the mapped case
+            Add this setup to the mapped case
           </button>
           <p>
             Review the remaining case steps to remove repeated setup and

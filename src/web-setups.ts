@@ -107,3 +107,55 @@ export function setupCatalog(project: Project) {
     })),
   }));
 }
+
+export function attachSetup(
+  project: Project,
+  recipe: Recipe,
+  id: string,
+): Recipe {
+  if (recipe.kind !== "web") throw new Error("Choose a mapped web case");
+  setupCommands(project, [id]);
+  const setupIds = SetupIds.parse([
+    ...new Set([...(recipe.setupIds ?? []), id]),
+  ]);
+  return { ...recipe, setupIds };
+}
+export function orderSetups(
+  project: Project,
+  recipe: Recipe,
+  ids: unknown,
+): Recipe {
+  if (recipe.kind !== "web") throw new Error("Choose a mapped web case");
+  const setupIds = SetupIds.parse(ids),
+    current = recipe.setupIds ?? [];
+  if (
+    setupIds.length !== current.length ||
+    setupIds.some((id) => !current.includes(id))
+  )
+    throw new Error("Reordering must retain every current setup exactly once");
+  setupCommands(project, setupIds);
+  return { ...recipe, setupIds };
+}
+/** Expand all prefixes in order, preserving controls, data variables and the case's own oracle. */
+export function inlineSetups(project: Project, recipe: Recipe): Recipe {
+  if (recipe.kind !== "web" || !recipe.setupIds?.length)
+    throw new Error("Choose a web case with shared setups");
+  const prefix = setupCommands(project, recipe.setupIds).map(({ command }) => {
+    if (!("locator" in command)) return structuredClone(command);
+    const locator = Object.hasOwn(project.locators, command.locator)
+      ? project.locators[command.locator]
+      : undefined;
+    if (!locator)
+      throw new Error("A shared setup control is missing from the catalog");
+    return { ...structuredClone(command), locator: structuredClone(locator) };
+  });
+  if (prefix.length + recipe.commands.length > 100)
+    throw new Error(
+      "Expanded flow exceeds 100 commands; keep the shared setup or split the case",
+    );
+  const { setupIds: _, ...rest } = recipe;
+  return {
+    ...rest,
+    commands: [...prefix, ...structuredClone(recipe.commands)],
+  };
+}

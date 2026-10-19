@@ -26,7 +26,7 @@ Top shortcuts now connect generation, catalog reuse, reports, feature coverage a
 
 ## Recording, traces and local agents
 
-**Start from sources** can record anonymous or authenticated web interactions into an editable, catalog-backed draft. Configured form/TOTP login or saved scoped SSO is verified before capture; sign-in steps stay outside the draft. Reusable browser setup flows run with each test’s account/data, and shared edits return affected tests to review. Entered values become test-data placeholders; expected results come from the QE. **Run** offers opt-in private Playwright traces with authenticated downloads and expiry. Optional local Ollama coordination runs separate analyst, designer and reviewer calls, then stages evidence-backed proposals for QE review. See [workflow, limits and validation](docs/recording-traces-and-agents.md).
+**Start from sources** can record anonymous or authenticated web interactions into an editable, catalog-backed draft. Configured form/TOTP login or saved scoped SSO is verified before capture; sign-in steps stay outside the draft. Reusable browser setup flows run with each test’s account/data. Add and order shared setups, or expand them into editable case steps. Changed shared definitions return affected tests to review and identify downstream dependencies. Entered values become test-data placeholders; expected results come from the QE. **Run** offers opt-in private Playwright traces with authenticated downloads and expiry. Optional local Ollama coordination runs separate analyst, designer and reviewer calls, then stages evidence-backed proposals for QE review. See [workflow, limits and validation](docs/recording-traces-and-agents.md).
 
 ## Run locally
 
