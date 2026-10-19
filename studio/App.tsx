@@ -3782,6 +3782,15 @@ function RunDialog({
                 ))}
               </select>
             </Field>
+            {(cloud ||
+              data.project.browsers[profile]?.browser === "webkit") && (
+              <p className="muted">
+                This profile uses buffered origin checks. Redirects and
+                streaming responses are not supported. Use local Chromium or
+                Firefox for these flows while provider-specific enforcement is
+                validated.
+              </p>
+            )}
             <Field label="Parallel workers">
               <input
                 type="number"

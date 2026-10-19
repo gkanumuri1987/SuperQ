@@ -534,6 +534,7 @@ export function materialize(project: Project, plan: IntakePlan): Project {
   const addLocator = (definition: z.infer<typeof locator>) =>
     ensureLocator(p, definition);
   for (const c of selected) {
+    validateCoverageLink(p, c);
     const qualityBlocker = assessProposal(c).findings.find(
       (f) => f.severity === "blocker",
     );
@@ -925,9 +926,31 @@ export function assertReviewed(
     );
 }
 
+export const CoverageLink = z
+  .object({ requirementId: z.string().min(1), criterionId: z.string().min(1) })
+  .strict();
+export function validateCoverageLink(
+  project: Project,
+  link: { requirementId?: string; criterionId?: string },
+) {
+  if (!link.requirementId && !link.criterionId) return;
+  const requirement = project.requirements.find(
+    (r) => r.id === link.requirementId,
+  );
+  if (
+    !requirement ||
+    !requirement.criteria.some((c) => c.id === link.criterionId)
+  )
+    throw new Error(
+      "Choose an existing requirement and one of its acceptance criteria",
+    );
+}
+
 export const CaseProposal = z
   .object({
     title: z.string().trim().min(1).max(300),
+    requirementId: z.string().min(1).optional(),
+    criterionId: z.string().min(1).optional(),
     steps: z
       .array(
         z
@@ -953,6 +976,26 @@ export function proposeCase(
   if (plan.candidates.length >= 500)
     throw new Error("Split intake into plans of at most 500 candidates");
   const proposal = CaseProposal.parse(input);
+  validateCoverageLink(project, proposal);
+  if (proposal.requirementId) {
+    const requirement = project.requirements.find(
+      (r) => r.id === proposal.requirementId,
+    )!;
+    if (
+      !proposal.evidence.some((ref) =>
+        project.evidence.some(
+          (e) =>
+            requirement.evidenceIds.includes(e.id) &&
+            e.source === ref.source &&
+            e.revision === ref.revision &&
+            e.excerpt.includes(ref.excerpt),
+        ),
+      )
+    )
+      throw new Error(
+        "Linked AI proposals must cite current evidence for the selected requirement",
+      );
+  }
   const quality = assessProposal(proposal, plan.candidates);
   if (quality.status === "blocked")
     throw new Error(

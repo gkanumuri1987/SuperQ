@@ -360,6 +360,66 @@ export default function Intake({
                   ? "Executable mapping proposed"
                   : "Needs action mapping"}
               </p>
+              <section aria-label={`Coverage target for ${c.title}`}>
+                <label>
+                  Coverage target
+                  <select
+                    aria-label={`Coverage target for ${c.title}`}
+                    disabled={
+                      pending ||
+                      status.stale ||
+                      !!plan.generated ||
+                      !!c.targetTestId
+                    }
+                    value={
+                      c.requirementId && c.criterionId
+                        ? JSON.stringify([c.requirementId, c.criterionId])
+                        : ""
+                    }
+                    onChange={(e) => {
+                      setAcknowledge(false);
+                      const selected = e.target.value
+                        ? (JSON.parse(e.target.value) as [string, string])
+                        : null;
+                      void act("intake/map", {
+                        candidateId: c.id,
+                        patch: {
+                          coverage: selected
+                            ? {
+                                requirementId: selected[0],
+                                criterionId: selected[1],
+                              }
+                            : null,
+                        },
+                      });
+                    }}
+                  >
+                    <option value="">
+                      Create a new requirement after review
+                    </option>
+                    {state.project.requirements.map((r) => (
+                      <optgroup
+                        key={r.id}
+                        label={`${r.title} · ${r.risk} risk`}
+                      >
+                        {r.criteria.map((ac) => (
+                          <option
+                            key={ac.id}
+                            value={JSON.stringify([r.id, ac.id])}
+                          >
+                            {r.id} / {ac.id}: {ac.title}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </label>
+                <p className="automate-note">
+                  {c.requirementId
+                    ? "Links this case to an existing criterion and retains its risk priority. Confirm that the assertions establish that outcome."
+                    : "No existing criterion selected. Generating this case will add a requirement; check for overlap first."}
+                </p>
+              </section>
               {c.existingTestIds.length > 0 && (
                 <p>
                   {c.targetTestId

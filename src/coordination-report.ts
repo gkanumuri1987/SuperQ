@@ -6,6 +6,7 @@ export function coordinationReport(job: Coordination) {
     jobId: job.id,
     at: job.at,
     model: job.model,
+    resolvedModels: job.resolvedModels,
     state: job.state,
     scope:
       "Deterministic proposal checks and model workflow telemetry; not a model accuracy benchmark or production certification.",

@@ -31,6 +31,8 @@ import {
   materialize,
   assertPlanCurrent,
   proposeCase,
+  CoverageLink,
+  validateCoverageLink,
   intakeSources,
 } from "./intake.js";
 import {
@@ -130,6 +132,7 @@ export async function startWorkspace(
     authConnector?: Parameters<typeof beginSignIn>[4];
     recorderConnector?: Parameters<typeof startRecording>[2];
     agentWorker?: Worker;
+    adapterFactory?: typeof createAdapters;
   } = {},
 ) {
   const port = options.port ?? 4310;
@@ -157,6 +160,7 @@ export async function startWorkspace(
   const traceDirectory = join(dirname(file), "private-traces");
   await new TraceStore(traceDirectory).prune();
   let busy = false;
+  let activeRun: Promise<void> | undefined;
   let scanning = false;
   let state: WorkspaceState;
   try {
@@ -421,11 +425,11 @@ export async function startWorkspace(
     state.revision++;
     await save();
 
-    void (async () => {
+    activeRun = (async () => {
       const traces = input.captureTrace
         ? new TraceStore(traceDirectory)
         : undefined;
-      const adapters = createAdapters(
+      const adapters = (options.adapterFactory ?? createAdapters)(
         profile,
         undefined,
         sessionDirectory,
@@ -438,6 +442,7 @@ export async function startWorkspace(
           input.suite,
           adapters.registry,
         );
+        await adapters.close();
         job.report = createReport(
           project,
           input.environment,
@@ -467,7 +472,14 @@ export async function startWorkspace(
         job.error =
           "Run could not complete. Check browser installation, environment and adapter configuration.";
       } finally {
-        await adapters.close().catch(() => {});
+        try {
+          await adapters.close();
+        } catch {
+          job.state = "failed";
+          delete job.report;
+          job.error =
+            "Adapter cleanup failed or timed out. Remote query cancellation is unconfirmed; inspect database sessions before rerunning.";
+        }
         if (traces) {
           job.traces = traces.artifacts;
           job.traceWarnings = traces.warnings;
@@ -477,6 +489,7 @@ export async function startWorkspace(
         await save();
       }
     })();
+    void activeRun.catch(() => {});
     return job.id;
   }
   async function intakeBlockers() {
@@ -549,6 +562,7 @@ export async function startWorkspace(
     const patch = z
       .object({
         selected: z.boolean().optional(),
+        coverage: CoverageLink.nullable().optional(),
         recipe: Recipe.nullable().optional(),
         role: z.string().optional(),
         user: z.string().optional(),
@@ -556,6 +570,11 @@ export async function startWorkspace(
       })
       .strict()
       .parse(data.patch);
+    if (patch.coverage) validateCoverageLink(state.project, patch.coverage);
+    if (patch.coverage !== undefined) {
+      candidate.requirementId = patch.coverage?.requirementId;
+      candidate.criterionId = patch.coverage?.criterionId;
+    }
     if (patch.selected !== undefined) candidate.selected = patch.selected;
     if (patch.recipe !== undefined)
       candidate.recipe = patch.recipe ?? undefined;
@@ -1333,7 +1352,7 @@ export async function startWorkspace(
           if (!options.agentWorker) ollamaProvider(model);
           const worker: Worker =
             options.agentWorker ??
-            (async (_role, schema, prompt, signal) => {
+            (async (role, schema, prompt, signal) => {
               const transport: typeof fetch = (input, init) =>
                 fetch(input, {
                   ...init,
@@ -1342,14 +1361,20 @@ export async function startWorkspace(
                     ...(init?.signal ? [init.signal] : []),
                   ]),
                 });
-              return (
-                await ollamaProvider(
-                  model,
-                  undefined,
-                  transport,
-                  schema,
-                )({ prompt, maxOutputTokens: 4000 })
-              ).json;
+              const provider = ollamaProvider(
+                model,
+                undefined,
+                transport,
+                schema,
+              );
+              const result = await provider({ prompt, maxOutputTokens: 4000 });
+              if (provider.identity && coordination) {
+                (coordination.job.resolvedModels ??= []).push({
+                  role,
+                  ...provider.identity,
+                });
+              }
+              return result.json;
             });
           coordination = coordinate(
             state.project,
@@ -1811,6 +1836,8 @@ export async function startWorkspace(
       await coordination?.done;
       await signIn?.handle.cancel();
       await vite?.close();
+      await activeRun;
+      await writing;
       await new Promise<void>((resolve) => server.close(() => resolve()));
     },
     url: `http://127.0.0.1:${(server.address() as { port: number }).port}`,

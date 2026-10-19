@@ -4,7 +4,7 @@ import { z } from "zod";
 import { lstat, readFile } from "node:fs/promises";
 import { resolve, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Recipe, CaseProposal } from "./intake.js";
+import { Recipe, CaseProposal, CoverageLink } from "./intake.js";
 
 export type AgentCall = (
   action: string,
@@ -113,6 +113,7 @@ export function createMcpServer(call: AgentCall) {
         patch: z
           .object({
             selected: z.boolean().optional(),
+            coverage: CoverageLink.nullable().optional(),
             recipe: Recipe.nullable().optional(),
             role: z.string().optional(),
             user: z.string().optional(),

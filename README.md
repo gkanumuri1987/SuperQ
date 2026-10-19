@@ -161,3 +161,11 @@ Studio supports guided SSO/MFA sign-in and expiring account-scoped browser sessi
 Start from sources now shows deterministic checks beside local-agent suggestions: blank expectations, known vacuous API assertions and conflicting static equalities block staging; exact duplicate flows, generic results, status-only checks and missing mappings produce review notes. Checks also apply to mapped intake plans before review/generation. The inline report shows bounded model-call diagnostics and exports metadata without raw source excerpts or proposal values. Every scenario still requires QE review.
 
 Run `npm run eval:ai` for the deterministic AI contract fixtures (no inference or downloads). This does not benchmark live model accuracy. See the [AI capability review and prioritized enhancements](docs/studio-qe-architecture-review.md#ai-capability-review-and-enhancement--19-october-2026).
+
+### Coverage targets and reviewed execution boundaries
+
+Intake cases and AI suggestions can target an existing requirement/acceptance criterion. Studio keeps its risk priority and shows the coverage target before generation; mapping edits require a new plan review. This avoids creating duplicate requirements for tests that address existing gaps.
+
+Browser execution checks redirect destinations and WebSocket origins before sending traffic. QE review digests bind referenced locators/actions, so prior saved approvals need a fresh review under this stronger binding. Database cancellation and bounded cleanup complete before Studio publishes reports; unconfirmed cleanup fails the job. Local Ollama now requires daemon-reported cloud-disabled status and verified installed-model metadata before source prompts are sent. Set `OLLAMA_NO_CLOUD=1` on the trusted daemon and restart it; unsupported status endpoints fail closed. See [fixes, verification and limitations](docs/studio-qe-architecture-review.md#astra-review-fixes-and-criterion-linked-intake).
+
+Use local Chromium/Firefox for flows with redirects or streaming/SSE. Cloud and WebKit profiles currently reject redirects and use buffered responses; Studio displays this compatibility limit.

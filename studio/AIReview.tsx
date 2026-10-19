@@ -67,6 +67,12 @@ export default function AIReview({ job }: { job: Coordination }) {
           )}
         </details>
       ))}
+      {job.resolvedModels?.map((m, i) => (
+        <p key={i}>
+          {m.role}: verified local {m.name} · digest {m.digest.slice(0, 16)} ·
+          cloud disabled
+        </p>
+      ))}
       <details>
         <summary>Model call diagnostics</summary>
         <ul>

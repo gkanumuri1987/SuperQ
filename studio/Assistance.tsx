@@ -220,7 +220,9 @@ export default function Assistance({
           model calls, 4,000 output tokens per call, three-minute deadline. No
           downloads, paid fallback, shell tools or automatic execution. The same
           installed model runs separate scoped roles; agreement does not certify
-          accuracy.
+          accuracy. The Ollama daemon must report cloud disabled
+          (OLLAMA_NO_CLOUD=1); installed model metadata is checked before source
+          context is sent.
         </p>
         <form
           className="form-stack"
@@ -272,6 +274,11 @@ export default function Assistance({
                 {job.proposals.map((p, i) => (
                   <article key={i}>
                     <h3>{p.title}</h3>
+                    <p>
+                      {p.requirementId
+                        ? `Coverage target: ${p.requirementId} / ${p.criterionId}`
+                        : "New requirement proposed — confirm scope before adding"}
+                    </p>
                     {p.steps.map((s, j) => (
                       <p key={j}>
                         {s.action} → {s.expected}
