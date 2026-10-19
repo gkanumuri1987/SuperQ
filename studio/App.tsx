@@ -5,6 +5,7 @@ import type { RunPreflight } from "../src/run-preflight";
 import type { Recording } from "../src/recorder";
 import Quality, { Capabilities, type Care } from "./Quality";
 import Intake from "./Intake";
+import ResultsCenter from "./ResultsCenter";
 import type { preflight, IntakePlan } from "../src/intake";
 import Environments from "./Environments";
 import Automate from "./Automate";
@@ -1697,8 +1698,8 @@ export default function App() {
             <>
               {header(
                 "RUN & UNDERSTAND",
-                "Less noise. Clearer results.",
-                "Run a suite on your chosen browser and follow every result back to its test.",
+                "Your test results.",
+                "See what passed, understand what needs attention, and share a clear summary.",
                 <Button
                   kind="primary"
                   disabled={
@@ -1733,91 +1734,26 @@ export default function App() {
                     </Button>
                   </Empty>
                 ) : (
-                  data.runs.map((r) => (
-                    <div className="run-row" key={r.id}>
-                      <span
-                        className={`run-state ${r.state === "running" ? "blue" : r.report?.gates.length ? "amber" : "green"}`}
-                      >
-                        {r.state === "running" ? (
-                          <Loader2 className="spin" size={21} />
-                        ) : (
-                          <FileCheck2 size={21} />
-                        )}
-                      </span>
-                      <div>
-                        <strong>
-                          {r.draftValidation
-                            ? "Draft validation"
-                            : (r.report?.suite ?? "Suite execution")}{" "}
-                          <Badge
-                            tone={
-                              r.state === "running"
-                                ? "blue"
-                                : r.state === "failed"
-                                  ? "red"
-                                  : "neutral"
-                            }
-                          >
-                            {r.state}
-                          </Badge>
-                        </strong>
-                        <p>
-                          {r.report
-                            ? `${r.report.environment} · ${r.report.runs[0]?.browser} · ${r.report.summary.passed}/${r.report.summary.total} passed`
-                            : (r.error ?? "Running with isolated contexts…")}
-                        </p>
-                        <small>{new Date(r.at).toLocaleString()}</small>
-                      </div>
-                      {r.traceWarnings?.map((w) => (
-                        <p key={w}>{w}</p>
-                      ))}
-                      {!!r.traces?.length && (
-                        <div>
-                          <small>
-                            Private traces · expire after 24 hours · may contain
-                            secrets
-                          </small>
-                          {r.traces.map((t) => (
-                            <div key={t.id}>
-                              <button
-                                className="button"
-                                onClick={() =>
-                                  void downloadTrace(t.id, data.token).catch(
-                                    (e) => setError(String(e.message)),
-                                  )
-                                }
-                              >
-                                {t.testId} · attempt {t.attempt} · Download
-                                trace
-                              </button>
-                              <button
-                                className="button"
-                                onClick={() =>
-                                  void mutate(
-                                    "traces/delete",
-                                    { id: t.id },
-                                    "Private trace deleted",
-                                  )
-                                }
-                              >
-                                Delete trace
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      {r.report && (
-                        <a
-                          className="button secondary"
-                          href={`/api/reports/${r.id}/html`}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          Open report <ArrowRight size={16} />
-                        </a>
-                      )}
-                    </div>
-                  ))
+                  <ResultsCenter
+                    runs={data.runs}
+                    openTest={(id) => {
+                      const test = p.tests.find((t) => t.id === id);
+                      if (test) edited(test);
+                      else go("tests");
+                    }}
+                    downloadTrace={(id) =>
+                      void downloadTrace(id, data.token).catch((e) =>
+                        setError(String(e.message)),
+                      )
+                    }
+                    deleteTrace={(id) =>
+                      void mutate(
+                        "traces/delete",
+                        { id },
+                        "Private trace deleted",
+                      )
+                    }
+                  />
                 )}
               </div>
             </>

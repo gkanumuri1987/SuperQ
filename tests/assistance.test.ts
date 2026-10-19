@@ -404,6 +404,9 @@ test("workspace integrates recorder, bounded local agents and authenticated trac
     assert.ok(!report.includes(trace.id));
     assert.ok(!report.includes("private-traces"));
     await page.goto(`${app.url}/#runs`);
+    await page
+      .getByText("Technical evidence · private traces", { exact: true })
+      .click();
     await expect(
       page.getByRole("button", { name: /Download trace/ }),
     ).toBeVisible();

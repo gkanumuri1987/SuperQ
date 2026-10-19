@@ -40,6 +40,9 @@ export default function Intake({
   const [pending, setPending] = useState(false);
   const [importing, setImporting] = useState(false);
   const [manual, setManual] = useState("");
+  const [entryMode, setEntryMode] = useState<"write" | "paste">("write");
+  const [caseTitle, setCaseTitle] = useState("");
+  const [caseSteps, setCaseSteps] = useState([{ action: "", expected: "" }]);
   const [source, setSource] = useState("Manual upload");
   const [revision, setRevision] = useState(
     new Date().toISOString().slice(0, 10),
@@ -279,36 +282,62 @@ export default function Intake({
                     dependsOn: string[];
                   }
                 >();
-                for (const [n, line] of manual.split(/\r?\n/).entries()) {
-                  if (!line.trim()) continue;
-                  const values = line.split("\t").map((s) => s.trim());
-                  if (values.length !== 4 || values.some((s) => !s))
+                if (entryMode === "write") {
+                  if (
+                    !caseTitle.trim() ||
+                    caseSteps.some(
+                      (step) => !step.action.trim() || !step.expected.trim(),
+                    )
+                  )
                     throw new Error(
-                      `Row ${n + 1}: use four tab-separated columns: ID, title, action, expected result.`,
+                      "Give your test a name and describe an action and expected result for every step.",
                     );
-                  const [id, title, step, expected] = values as [
-                    string,
-                    string,
-                    string,
-                    string,
-                  ];
-                  if (cases.has(id) && cases.get(id)!.title !== title)
-                    throw new Error(
-                      `Row ${n + 1}: keep the same title for all steps of ${id}.`,
-                    );
-                  const c = cases.get(id) ?? {
+                  const id = `manual-${crypto.randomUUID()}`;
+                  cases.set(id, {
                     source,
                     externalId: id,
                     revision,
-                    title,
+                    title: caseTitle.trim(),
                     featureIds: ["manual-current-scope"],
                     storyIds: [],
-                    steps: [],
+                    steps: caseSteps.map((step) => ({
+                      action: step.action.trim(),
+                      expected: step.expected.trim(),
+                    })),
                     dependsOn: [],
-                  };
-                  c.steps.push({ action: step, expected });
-                  cases.set(id, c);
+                  });
                 }
+                if (entryMode === "paste")
+                  for (const [n, line] of manual.split(/\r?\n/).entries()) {
+                    if (!line.trim()) continue;
+                    const values = line.split("\t").map((s) => s.trim());
+                    if (values.length !== 4 || values.some((s) => !s))
+                      throw new Error(
+                        `Row ${n + 1}: use four tab-separated columns: ID, title, action, expected result.`,
+                      );
+                    const [id, title, step, expected] = values as [
+                      string,
+                      string,
+                      string,
+                      string,
+                    ];
+                    if (cases.has(id) && cases.get(id)!.title !== title)
+                      throw new Error(
+                        `Row ${n + 1}: keep the same title for all steps of ${id}.`,
+                      );
+                    const c = cases.get(id) ?? {
+                      source,
+                      externalId: id,
+                      revision,
+                      title,
+                      featureIds: ["manual-current-scope"],
+                      storyIds: [],
+                      steps: [],
+                      dependsOn: [],
+                    };
+                    c.steps.push({ action: step, expected });
+                    cases.set(id, c);
+                  }
                 if (!cases.size || !source.trim() || !revision.trim())
                   throw new Error(
                     "Provide a source, revision and at least one manual test.",
@@ -352,49 +381,157 @@ export default function Intake({
                 if (await act("planning", { planning })) {
                   setImporting(false);
                   setManual("");
+                  setCaseTitle("");
+                  setCaseSteps([{ action: "", expected: "" }]);
                 }
               } catch (err) {
                 setError((err as Error).message);
               }
             }}
           >
-            <div className="automate-field-row">
-              <label>
-                Inventory source
-                <input
-                  value={source}
-                  onChange={(e) => setSource(e.target.value)}
-                  required
-                />
-              </label>
-              <label>
-                Source revision
-                <input
-                  value={revision}
-                  onChange={(e) => setRevision(e.target.value)}
-                  required
-                />
-              </label>
+            <div className="actions" aria-label="Test entry method">
+              <button
+                type="button"
+                className="button"
+                aria-pressed={entryMode === "write"}
+                onClick={() => setEntryMode("write")}
+              >
+                Write a test
+              </button>
+              <button
+                type="button"
+                className="button"
+                aria-pressed={entryMode === "paste"}
+                onClick={() => setEntryMode("paste")}
+              >
+                Paste spreadsheet rows
+              </button>
             </div>
-            <label>
-              Paste rows from your spreadsheet
-              <textarea
-                rows={6}
-                value={manual}
-                onChange={(e) => setManual(e.target.value)}
-                placeholder={
-                  "TC-1\tHealth status\tRequest GET /api/health\tResponse status is ok"
-                }
-              />
-              <small>
-                Four columns, no header: ID, title, action, expected result.
-                Repeat the ID for more steps. This imports cases into the QE
-                selected current scope. Use sprint intake to supply feature
-                lifecycle, dependencies and tracker revisions.
-              </small>
-            </label>
+            {entryMode === "write" && (
+              <>
+                <label>
+                  Test name
+                  <input
+                    value={caseTitle}
+                    onChange={(e) => setCaseTitle(e.target.value)}
+                    placeholder="Customer can sign in with a valid account"
+                    required
+                  />
+                </label>
+                <p>
+                  Describe what you do and what should happen. You will review
+                  the automation plan before running it.
+                </p>
+                {caseSteps.map((step, index) => (
+                  <fieldset key={index}>
+                    <legend>Step {index + 1}</legend>
+                    <label>
+                      Action
+                      <textarea
+                        required
+                        value={step.action}
+                        onChange={(e) =>
+                          setCaseSteps((steps) =>
+                            steps.map((s, i) =>
+                              i === index
+                                ? { ...s, action: e.target.value }
+                                : s,
+                            ),
+                          )
+                        }
+                        placeholder="Enter the email and password, then select Sign in"
+                      />
+                    </label>
+                    <label>
+                      Expected result
+                      <textarea
+                        required
+                        value={step.expected}
+                        onChange={(e) =>
+                          setCaseSteps((steps) =>
+                            steps.map((s, i) =>
+                              i === index
+                                ? { ...s, expected: e.target.value }
+                                : s,
+                            ),
+                          )
+                        }
+                        placeholder="The account dashboard opens and shows the customer's name"
+                      />
+                    </label>
+                    {caseSteps.length > 1 && (
+                      <button
+                        type="button"
+                        className="button"
+                        onClick={() =>
+                          setCaseSteps((steps) =>
+                            steps.filter((_, i) => i !== index),
+                          )
+                        }
+                      >
+                        Remove step {index + 1}
+                      </button>
+                    )}
+                  </fieldset>
+                ))}
+                <button
+                  type="button"
+                  className="button"
+                  onClick={() =>
+                    setCaseSteps((steps) => [
+                      ...steps,
+                      { action: "", expected: "" },
+                    ])
+                  }
+                >
+                  Add a step
+                </button>
+              </>
+            )}
+            <details>
+              <summary>Source details (optional)</summary>
+              <div className="automate-field-row">
+                <label>
+                  Inventory source
+                  <input
+                    value={source}
+                    onChange={(e) => setSource(e.target.value)}
+                    required
+                  />
+                </label>
+                <label>
+                  Source revision
+                  <input
+                    value={revision}
+                    onChange={(e) => setRevision(e.target.value)}
+                    required
+                  />
+                </label>
+              </div>
+            </details>
+            {entryMode === "paste" && (
+              <label>
+                Paste rows from your spreadsheet
+                <textarea
+                  rows={6}
+                  value={manual}
+                  onChange={(e) => setManual(e.target.value)}
+                  placeholder={
+                    "TC-1\tHealth status\tRequest GET /api/health\tResponse status is ok"
+                  }
+                />
+                <small>
+                  Four columns, no header: ID, title, action, expected result.
+                  Repeat the ID for more steps. This imports cases into the QE
+                  selected current scope. Use sprint intake to supply feature
+                  lifecycle, dependencies and tracker revisions.
+                </small>
+              </label>
+            )}
             <button className="button primary" disabled={pending}>
-              Import current-scope cases
+              {entryMode === "write"
+                ? "Save test case"
+                : "Import current-scope cases"}
             </button>
           </form>
         )}

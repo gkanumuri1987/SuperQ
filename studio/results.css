@@ -1,0 +1,139 @@
+.results-center {
+  display: grid;
+  gap: 20px;
+}
+.results-center label {
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.results-center input,
+.results-center select,
+.results-center textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #d6dfec;
+  border-radius: 8px;
+  background: white;
+  color: #24324a;
+  font: inherit;
+}
+.results-run-picker {
+  max-width: 760px;
+}
+.results-outcome {
+  display: flex;
+  gap: 24px;
+  justify-content: space-between;
+  padding: 24px;
+  border-radius: 14px;
+  border: 1px solid #dbe3ed;
+  background: #f6f8fc;
+}
+.results-outcome.green {
+  background: #edf8f2;
+  border-color: #c4dfcf;
+}
+.results-outcome.red {
+  background: #fff0ef;
+  border-color: #efc9c5;
+}
+.results-outcome.amber {
+  background: #fff7e9;
+  border-color: #ead7b5;
+}
+.results-outcome h2 {
+  margin: 8px 0;
+}
+.results-center p {
+  line-height: 1.7;
+  color: #53637b;
+  overflow-wrap: anywhere;
+}
+.result-counts {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+.result-counts button {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #dbe3ed;
+  border-radius: 12px;
+  padding: 20px;
+  background: white;
+  color: #344563;
+  font: inherit;
+  cursor: pointer;
+}
+.result-counts button[aria-pressed="true"] {
+  border-color: #315ff0;
+  background: #edf2ff;
+}
+.result-counts strong {
+  font-size: 28px;
+}
+.result-share-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.result-list,
+.email-composer,
+.result-evidence {
+  padding: 24px;
+}
+.result-filters {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 16px;
+  margin: 20px 0;
+}
+.tester-result {
+  border-top: 1px solid #e3e8ef;
+  padding: 20px 0;
+}
+.tester-result > div {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+}
+.tester-result h3 {
+  margin: 0;
+}
+.tester-result summary,
+.result-evidence summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.result-context {
+  font-size: 12px;
+}
+.email-composer label {
+  margin: 16px 0;
+}
+.email-composer .button {
+  margin: 6px 10px 6px 0;
+}
+.results-center button:focus-visible,
+.results-center a:focus-visible {
+  outline: 3px solid #9cafee;
+  outline-offset: 3px;
+}
+@media (max-width: 700px) {
+  .results-outcome,
+  .tester-result > div {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .result-counts {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .result-filters {
+    grid-template-columns: 1fr;
+  }
+}

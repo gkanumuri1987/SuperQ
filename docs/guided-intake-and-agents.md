@@ -107,3 +107,11 @@ MCP allows the corporate agent host to use its own authorized model access. It d
 Deterministic intake, mapping and local trials do not call a model. The existing optional Ollama requirement planner remains available; it is not silently used to infer executable mappings. Host model charges, model quality and corporate policies belong to that host. No paid model/cloud session, actual Copilot tenant or live application repository was used for local validation.
 
 MCP implementation follows the [official SDK documentation](https://ts.sdk.modelcontextprotocol.io/server) and [stdio server guidance](https://modelcontextprotocol.io/docs/develop/build-server). No automatic repair, assertion weakening, complete coverage claim or production certification is implied.
+
+## Functional tester workflow
+
+In **Start from sources → Add manual cases**, choose **Write a test**. Give it a name, then enter each action and its expected result. Add or remove steps as needed; SuperQ supplies an ID. Source details are optional, and **Paste spreadsheet rows** retains the bulk import workflow. Saving a case does not execute it: continue through plan mapping, human review, generation and a draft trial.
+
+**Runs & reports** now presents one selected run, its actual outcome, passed/failed/blocked/not-run counts, search and filters, and a next step for each result. Retries, repairs and unmet quality checks keep a run in **Needs attention**. A passing draft is labeled **Trial passed**, not approved coverage. Coverage and private traces remain available under expandable details.
+
+**Email summary** prepares an editable summary of the selected completed run. Enter recipients and choose **Open email draft** to open your configured email application. SuperQ does not send mail, store recipients, or provide scheduled email notifications. The default summary excludes test names, raw errors, URLs, test data and traces. You can download the summary as text, or download the full HTML report and attach it yourself after reviewing its contents. Local Studio links are not externally accessible report links.

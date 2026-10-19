@@ -125,7 +125,11 @@ test("Studio guides setup, change review, test editing and real focused executio
       .getByRole("link", { name: "Open report", exact: true })
       .first()
       .waitFor({ timeout: 15000 });
-    assert.ok(await page.getByText(/1\/1 passed/).count());
+    await expect(
+      page
+        .getByRole("region", { name: "Test execution totals" })
+        .getByRole("button", { name: "1 Passed", exact: true }),
+    ).toBeVisible();
     await page.setViewportSize({ width: 390, height: 844 });
     await page
       .getByRole("button", { name: "Open navigation", exact: true })
