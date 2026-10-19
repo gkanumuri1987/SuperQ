@@ -600,14 +600,16 @@ export default function App() {
           </div>
         </header>
         <main id="main-content" tabIndex={-1}>
-          <Capabilities
-            go={go}
-            tests={p.tests.length}
-            openQuality={(view) => {
-              setQualityView(view);
-              go("quality");
-            }}
-          />
+          {page !== "intake" && (
+            <Capabilities
+              go={go}
+              tests={p.tests.length}
+              openQuality={(view) => {
+                setQualityView(view);
+                go("quality");
+              }}
+            />
+          )}
           {page === "automate" && (
             <WorkQueue
               queue={data.workQueue}

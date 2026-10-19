@@ -163,25 +163,74 @@ test("repository-only Studio generates cited proposals without stories/docs/test
       osVersion: "11",
     });
     await post("import", { project: p });
-    await post("setup", {
-      name: p.name,
-      baseURL: p.environments.test!.baseURL,
-      repository: "",
-      tracker: "",
-      documentation: "",
-      localRepository: dir,
-      paths: ["health.ts"],
-      watch: false,
-    });
-    await post("scan", {});
+    await post(
+      "intake/connect",
+      {
+        environment: "test",
+        baseURL: "https://changed.example.test",
+        localRepository: dir,
+        paths: ["missing.ts"],
+      },
+      400,
+    );
+    assert.equal((await get()).sourceSnapshot, undefined);
+    assert.equal(
+      (await get()).project.environments.test.baseURL,
+      p.environments.test!.baseURL,
+    );
     await page.goto(app.url + "/#intake");
-    await page.getByLabel("Automation preference").selectOption("api");
+    await expect(
+      page
+        .getByRole("navigation", { name: "Workflow stages" })
+        .getByRole("button", { name: "2 Review tests", exact: true }),
+    ).toBeDisabled();
+    await expect(
+      page.getByRole("region", { name: "Automation capabilities" }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Enable proposal-only MCP connection" }),
+    ).not.toBeVisible();
+    if (process.env.SUPERQ_CAPTURE_STUDIO) {
+      await page.screenshot({
+        path: "/tmp/superq-first-run-desktop.png",
+        fullPage: true,
+      });
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.screenshot({
+        path: "/tmp/superq-first-run-mobile.png",
+        fullPage: true,
+        animations: "disabled",
+      });
+      await page.setViewportSize({ width: 1280, height: 720 });
+    }
     await page
-      .getByRole("button", { name: "Analyze & prepare review plan" })
+      .getByRole("button", { name: "Connect repository", exact: true })
       .click();
+    await page.getByLabel("Repository folder", { exact: true }).fill(dir);
+    await page
+      .getByLabel("Files to analyze", { exact: false })
+      .fill("health.ts");
+    const connecting = page.waitForRequest((r) =>
+      r.url().endsWith("/api/intake/connect"),
+    );
+    await page
+      .getByRole("button", { name: "Connect & scan", exact: true })
+      .click();
+    assert.deepEqual((await connecting).postDataJSON().paths, ["health.ts"]);
+    await expect
+      .poll(async () => (await get()).sourceSnapshot?.files.length)
+      .toBe(1);
+    await expect(
+      page.getByLabel("Repository folder", { exact: true }),
+    ).not.toBeVisible();
+    await page.getByLabel("Automation preference").selectOption("api");
+    await page.getByRole("button", { name: "Continue to test cases" }).click();
     await expect(
       page.getByText("Generate test cases from repository", { exact: true }),
     ).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "Connect your application" }),
+    ).not.toBeVisible();
     assert.equal((await get()).intake.candidates.length, 0);
     await page.getByLabel("Installed local Ollama model").fill("fixture-local");
     await page
@@ -223,6 +272,16 @@ test("repository-only Studio generates cited proposals without stories/docs/test
       .getByRole("button", { name: "Generate reviewed automation" })
       .click();
     await expect(page.getByLabel("Trial browser profile")).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "Review test cases" }),
+    ).not.toBeVisible();
+    await page
+      .getByRole("button", { name: "2 Review tests", exact: true })
+      .click();
+    await expect(
+      page.getByRole("region", { name: "Review test cases" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "3 Run", exact: true }).click();
     assert.equal((await get()).project.tests[0].status, "draft");
     await post("intake/trial", { profile: "remote" }, 400);
     assert.deepEqual(seen, []);
@@ -256,6 +315,11 @@ test("repository-only Studio generates cited proposals without stories/docs/test
       page.getByText("Trial: completed", { exact: true }),
     ).toBeVisible();
     await expect(page.getByLabel("Trial browser profile")).toBeVisible();
+    await page.getByRole("button", { name: "1 Connect", exact: true }).click();
+    await expect(
+      page.getByRole("region", { name: "Connect your application" }),
+    ).toBeVisible();
+    await expect(page.getByLabel("Trial browser profile")).not.toBeVisible();
     assert.ok(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= window.innerWidth,

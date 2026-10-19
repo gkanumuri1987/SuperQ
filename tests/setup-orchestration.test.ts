@@ -199,6 +199,11 @@ test("Studio attaches multiple setups, preserves no-op review, orders and expand
     page.on("pageerror", (e) => errors.push(e.message));
     await page.goto(`${app.url}/#intake`);
     await page
+      .getByText("Optional: record a flow or ask AI for more tests", {
+        exact: true,
+      })
+      .click();
+    await page
       .getByText("Reusable browser setup flows", { exact: true })
       .click();
     await page

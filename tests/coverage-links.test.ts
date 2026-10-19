@@ -175,6 +175,9 @@ test("Studio coverage selection sends exact criterion, clears plan review, prese
     assert.deepEqual(state.project.tests[0].covers, { R: ["ready"] });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.reload();
+    await page
+      .getByRole("button", { name: "2 Review tests", exact: true })
+      .click();
     await expect(selection).toBeVisible();
     assert.ok(
       await page.evaluate(

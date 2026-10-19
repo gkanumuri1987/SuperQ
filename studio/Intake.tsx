@@ -1,6 +1,6 @@
 import Assistance from "./Assistance";
 import type { Recording } from "../src/recorder";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { WorkspaceState } from "../src/workspace-server";
 import type { Candidate, IntakePlan, Recipe } from "../src/intake";
 import type { preflight } from "../src/intake";
@@ -56,6 +56,28 @@ export default function Intake({
   const chosenProfile = state.project.browsers[trialProfile];
   const cloudTrial = !!chosenProfile && chosenProfile.provider !== "local";
   const plan = status.plan;
+  const initialStage = !plan || status.stale ? 1 : plan.generated ? 3 : 2;
+  const [stage, setStage] = useState(initialStage);
+  const [allSteps, setAllSteps] = useState(false);
+  const [connectOpen, setConnectOpen] = useState(false);
+  const [repositoryPath, setRepositoryPath] = useState(
+    state.connections.localRepository,
+  );
+  const [sourcePaths, setSourcePaths] = useState(
+    state.connections.paths.join("\n"),
+  );
+  const [applicationURL, setApplicationURL] = useState(
+    state.project.environments[environment]?.baseURL ?? "",
+  );
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    setStage(!plan || status.stale ? 1 : plan.generated ? 3 : 2);
+  }, [plan?.id, !!plan?.generated, status.stale]);
+  useEffect(() => {
+    heading.current?.focus({ preventScroll: true });
+    window.scrollTo(0, 0);
+  }, [stage]);
+  const visible = (step: number) => allSteps || stage === step;
   const act = async (path: string, body: Record<string, unknown>) => {
     setPending(true);
     setError("");
@@ -77,33 +99,74 @@ export default function Intake({
     <div className="intake-home automate-home">
       <div className="automate-intro">
         <span className="eyebrow">GUIDED AUTOMATION</span>
-        <h1>Start with what you have.</h1>
+        <h1 ref={heading} tabIndex={-1}>
+          {stage === 1
+            ? "Let’s automate your application."
+            : stage === 2
+              ? "Review what we’ll test."
+              : "Try your automation."}
+        </h1>
         <p>
-          Start with your application repository—even without stories,
-          documentation or manual tests. Discover functionality, review proposed
-          test cases, then generate and verify automation locally or in the
-          cloud.
+          {stage === 1
+            ? "Connect your code or bring existing tests. We’ll guide you through the rest."
+            : stage === 2
+              ? "Confirm the expected behavior before creating automation."
+              : "Choose where to run and see what passed or needs attention."}
         </p>
       </div>
-      <div className="intake-progress" aria-label="Workflow stages">
-        <span>1 · Sources</span>
-        <span>2 · Plan & review</span>
-        <span>3 · Automate & verify</span>
+      <nav className="intake-progress" aria-label="Workflow stages">
+        {["Connect", "Review tests", "Run"].map((label, index) => (
+          <button
+            key={label}
+            type="button"
+            aria-current={stage === index + 1 ? "step" : undefined}
+            disabled={
+              pending ||
+              (index > 0 && (!plan || status.stale)) ||
+              (index === 2 && !plan?.generated)
+            }
+            onClick={() => {
+              setAllSteps(false);
+              setStage(index + 1);
+            }}
+          >
+            <span>{index + 1}</span>
+            {label}
+          </button>
+        ))}
+      </nav>
+      <div className="intake-view-controls">
+        <span>Step {stage} of 3</span>
+        <button type="button" onClick={() => setAllSteps(!allSteps)}>
+          {allSteps ? "Use guided steps" : "Show all steps"}
+        </button>
       </div>
-      <section className="automate-card">
-        <h2>
-          <span>1</span> Your starting point
-        </h2>
+      {status.stale && (
+        <p role="status" className="intake-blocker">
+          Your sources or settings changed. Prepare a fresh plan to continue;
+          existing tests are saved.
+        </p>
+      )}
+      <section
+        className="automate-card"
+        hidden={!visible(1)}
+        aria-label="Connect your application"
+      >
+        <h2>What are you starting with?</h2>
         <div className="intake-source-grid">
           <div>
             <strong>Application repository</strong>
             <p>
               {state.sourceSnapshot
-                ? `${state.sourceSnapshot.files.length} committed files · ${state.sourceSnapshot.revision.slice(0, 8)}`
-                : "No repository knowledge scanned yet"}
+                ? `${state.sourceSnapshot.files.length} files connected · ${state.sourceSnapshot.revision.slice(0, 8)}`
+                : "Start from the application code you want to test."}
             </p>
-            <button className="button" onClick={() => go("connections")}>
-              Configure repository
+            <button
+              className="button"
+              aria-expanded={connectOpen}
+              onClick={() => setConnectOpen(!connectOpen)}
+            >
+              {connectOpen ? "Close repository setup" : "Connect repository"}
             </button>
             {state.connections.localRepository && (
               <button
@@ -116,23 +179,86 @@ export default function Intake({
             )}
           </div>
           <div>
-            <strong>Manual test inventory · optional</strong>
-            <p>{state.planning?.cases.length ?? 0} imported manual cases</p>
+            <strong>Existing test cases</strong>
+            <p>
+              {state.planning?.cases.length
+                ? `${state.planning.cases.length} ${state.planning.cases.length === 1 ? "case" : "cases"} imported`
+                : "Optional. Bring tests you already have."}
+            </p>
             <button className="button" onClick={() => setImporting(!importing)}>
               Add manual cases
-            </button>{" "}
-            <button className="button" onClick={() => go("planning")}>
-              Tracker / sprint intake
             </button>
+            <details className="intake-source-options">
+              <summary>Tracker & sprint options</summary>
+              <button className="button" onClick={() => go("planning")}>
+                Tracker / sprint intake
+              </button>
+            </details>
           </div>
         </div>
+        {connectOpen && (
+          <form
+            className="intake-connect-form"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (
+                await act("intake/connect", {
+                  environment,
+                  baseURL: applicationURL,
+                  localRepository: repositoryPath,
+                  paths: sourcePaths
+                    .split(/\r?\n/)
+                    .map((p) => p.trim())
+                    .filter(Boolean),
+                })
+              )
+                setConnectOpen(false);
+            }}
+          >
+            <h3>Connect your repository</h3>
+            <p>
+              Use a local checkout. SuperQ reads the committed files you choose.
+            </p>
+            <label>
+              Application URL
+              <input
+                required
+                type="url"
+                value={applicationURL}
+                onChange={(e) => setApplicationURL(e.target.value)}
+                placeholder="https://test.example.com"
+              />
+            </label>
+            <label>
+              Repository folder
+              <input
+                required
+                value={repositoryPath}
+                onChange={(e) => setRepositoryPath(e.target.value)}
+                placeholder="/path/to/application"
+              />
+            </label>
+            <label>
+              Files to analyze
+              <textarea
+                required
+                rows={3}
+                value={sourcePaths}
+                onChange={(e) => setSourcePaths(e.target.value)}
+                placeholder={"src/routes.ts\nsrc/checkout.tsx"}
+              />
+              <small>
+                One repository-relative file path per line. Choose the feature
+                you want to automate. Exclude credentials and secrets.
+              </small>
+            </label>
+            <button className="button primary" disabled={pending}>
+              {pending ? "Connecting…" : "Connect & scan"}
+            </button>
+          </form>
+        )}
         <p className="automate-note">
-          Repository only: scan committed implementation files, then use local
-          AI or your corporate coding agent to propose source-cited tests.
-          Gherkin and OpenAPI JSON also produce candidates without AI. Existing
-          tests, stories and documentation enrich the analysis but are optional.
-          Configure a read-only local checkout and allowed file paths; a linked
-          URL alone does not supply repository content.
+          Stories and documentation are optional. Your code stays read-only.
         </p>
         {importing && (
           <form
@@ -277,7 +403,12 @@ export default function Intake({
             Test environment
             <select
               value={environment}
-              onChange={(e) => setEnvironment(e.target.value)}
+              onChange={(e) => {
+                setEnvironment(e.target.value);
+                setApplicationURL(
+                  state.project.environments[e.target.value]?.baseURL ?? "",
+                );
+              }}
             >
               {Object.keys(state.project.environments).map((name) => (
                 <option key={name}>{name}</option>
@@ -308,7 +439,7 @@ export default function Intake({
             void act("intake/analyze", { environment, preference });
           }}
         >
-          Analyze & prepare review plan
+          Continue to test cases
         </button>
       </section>
       {error && (
@@ -316,9 +447,22 @@ export default function Intake({
           {error}
         </p>
       )}
-      <Assistance state={state} recording={recording} action={action} />
-      {plan && (
-        <section className="automate-card intake-section">
+      <div hidden={!visible(2)}>
+        {plan?.candidates.length ? (
+          <details className="intake-extra-help">
+            <summary>Optional: record a flow or ask AI for more tests</summary>
+            <Assistance state={state} recording={recording} action={action} />
+          </details>
+        ) : (
+          <Assistance state={state} recording={recording} action={action} />
+        )}
+      </div>
+      {plan && (plan.candidates.length > 0 || allSteps) && (
+        <section
+          className="automate-card intake-section"
+          hidden={!visible(2)}
+          aria-label="Review test cases"
+        >
           <h2>
             <span>2</span> Review your automation plan
           </h2>
@@ -579,7 +723,11 @@ export default function Intake({
         </section>
       )}
       {plan?.generated && (
-        <section className="automate-card intake-section">
+        <section
+          className="automate-card intake-section"
+          hidden={!visible(3)}
+          aria-label="Run generated automation"
+        >
           <h2>
             <span>3</span> Verify in the application
           </h2>
@@ -695,69 +843,72 @@ export default function Intake({
           </p>
         </section>
       )}
-      <section className="automate-card intake-section">
-        <h2>Work with your corporate coding agent</h2>
-        <p>
-          Share committed sources, manual steps, plan mappings and trial
-          diagnostics with an MCP-capable host such as Copilot. Your
-          organization's policies and the host's own model access apply.
-        </p>
-        <div className="automate-actions">
-          <button
-            className="button"
-            disabled={pending}
-            onClick={() =>
-              void act("agent-access", {
-                enabled: !agent.enabled,
-                allowTrials: false,
-              })
-            }
-          >
-            {agent.enabled
-              ? "Revoke agent connection"
-              : "Enable proposal-only MCP connection"}
-          </button>
-          {agent.enabled && (
+      <details className="intake-advanced" open={agent.enabled || undefined}>
+        <summary>Advanced: connect a corporate coding agent</summary>
+        <section className="automate-card intake-section">
+          <h2>Work with your corporate coding agent</h2>
+          <p>
+            Share committed sources, manual steps, plan mappings and trial
+            diagnostics with an MCP-capable host such as Copilot. Your
+            organization's policies and the host's own model access apply.
+          </p>
+          <div className="automate-actions">
             <button
               className="button"
               disabled={pending}
               onClick={() =>
                 void act("agent-access", {
-                  enabled: true,
-                  allowTrials: !agent.allowTrials,
+                  enabled: !agent.enabled,
+                  allowTrials: false,
                 })
               }
             >
-              {agent.allowTrials
-                ? "Disable agent trials"
-                : "Allow reviewed local trials"}
+              {agent.enabled
+                ? "Revoke agent connection"
+                : "Enable proposal-only MCP connection"}
             </button>
-          )}
-        </div>
-        {agent.enabled && (
-          <>
-            <p>
-              <strong>
+            {agent.enabled && (
+              <button
+                className="button"
+                disabled={pending}
+                onClick={() =>
+                  void act("agent-access", {
+                    enabled: true,
+                    allowTrials: !agent.allowTrials,
+                  })
+                }
+              >
                 {agent.allowTrials
-                  ? "Proposals and reviewed local trials enabled"
-                  : "Proposals only"}
-              </strong>
-              . Approval, secrets, SSO sessions, shell commands and application
-              source writes are not exposed by these tools.
-            </p>
-            <label>
-              Private connection file
-              <input readOnly value={agent.file ?? ""} />
-            </label>
-            <p className="automate-note">
-              Set SUPERQ_AGENT_CONNECTION to this path and launch npm run mcp
-              --silent from this repository in your host configuration. Treat
-              the file as a credential. Revoking access or closing Studio
-              invalidates it.
-            </p>
-          </>
-        )}
-      </section>
+                  ? "Disable agent trials"
+                  : "Allow reviewed local trials"}
+              </button>
+            )}
+          </div>
+          {agent.enabled && (
+            <>
+              <p>
+                <strong>
+                  {agent.allowTrials
+                    ? "Proposals and reviewed local trials enabled"
+                    : "Proposals only"}
+                </strong>
+                . Approval, secrets, SSO sessions, shell commands and
+                application source writes are not exposed by these tools.
+              </p>
+              <label>
+                Private connection file
+                <input readOnly value={agent.file ?? ""} />
+              </label>
+              <p className="automate-note">
+                Set SUPERQ_AGENT_CONNECTION to this path and launch npm run mcp
+                --silent from this repository in your host configuration. Treat
+                the file as a credential. Revoking access or closing Studio
+                invalidates it.
+              </p>
+            </>
+          )}
+        </section>
+      </details>
     </div>
   );
 }

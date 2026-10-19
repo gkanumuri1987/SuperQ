@@ -32,7 +32,7 @@ test("active Studio guides manual paste through plan review, real browser trial,
     assert.equal(response.status, 200);
     await page.goto(`${app.url}/#intake`);
     await page
-      .getByRole("heading", { name: "Start with what you have." })
+      .getByRole("heading", { name: "Let’s automate your application." })
       .waitFor();
     await page
       .getByRole("button", { name: "Add manual cases", exact: true })
@@ -45,10 +45,8 @@ test("active Studio guides manual paste through plan review, real browser trial,
     await page
       .getByRole("button", { name: "Import current-scope cases" })
       .click();
-    await page.getByText("1 imported manual cases", { exact: true }).waitFor();
-    await page
-      .getByRole("button", { name: "Analyze & prepare review plan" })
-      .click();
+    await page.getByText("1 case imported", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "Continue to test cases" }).click();
     await page
       .getByRole("heading", { name: "Review your automation plan" })
       .waitFor();
@@ -101,6 +99,9 @@ test("active Studio guides manual paste through plan review, real browser trial,
     assert.equal(state.project.tests[0].status, "draft");
     assert.equal(state.runs[0].draftValidation, true);
     assert.equal(state.runs[0].report.results[0].observations.length, 4);
+    await page
+      .getByText("Advanced: connect a corporate coding agent", { exact: true })
+      .click();
     await page
       .getByRole("button", { name: "Enable proposal-only MCP connection" })
       .click();

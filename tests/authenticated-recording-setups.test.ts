@@ -442,6 +442,11 @@ test("Studio selects an account, records after login, extracts a shared setup an
     page.on("pageerror", (e) => errors.push(e.message));
     page.setDefaultTimeout(10000);
     await page.goto(`${app.url}/#intake`);
+    await page
+      .getByText("Optional: record a flow or ask AI for more tests", {
+        exact: true,
+      })
+      .click();
     await page.getByText("Record a web flow", { exact: true }).click();
     await page
       .getByLabel("Recording account", { exact: true })

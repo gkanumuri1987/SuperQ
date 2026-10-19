@@ -260,7 +260,14 @@ test("workspace integrates recorder, bounded local agents and authenticated trac
     await post("planning", { planning: fixtureInventory() });
     await post("intake/analyze", { environment: "test", preference: "web" });
     await page.goto(`${app.url}/#intake`);
-    await page.getByText("Capture a flow or ask your local agents").waitFor();
+    await page
+      .getByText("Optional: record a flow or ask AI for more tests", {
+        exact: true,
+      })
+      .click();
+    await page
+      .getByText("Need help with these tests?", { exact: true })
+      .waitFor();
     await page.getByText("Record a web flow", { exact: true }).click();
     await page.getByRole("button", { name: "Open recording browser" }).click();
     await expect

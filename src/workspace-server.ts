@@ -1425,6 +1425,35 @@ export async function startWorkspace(
           await new TraceStore(traceDirectory).remove(artifact);
           job.traces = job.traces!.filter((t) => t.id !== artifact.id);
           state.revision++;
+        } else if (path === "/api/intake/connect") {
+          const input = z
+            .object({
+              environment: z.string(),
+              baseURL: z.url(),
+              localRepository: z.string().trim().min(1),
+              paths: z.array(z.string().trim().min(1)).min(1).max(100),
+            })
+            .parse(data);
+          if (!Object.hasOwn(state.project.environments, input.environment))
+            throw new Error("Choose an existing test environment");
+          const project = structuredClone(state.project);
+          project.environments[input.environment]!.baseURL = input.baseURL;
+          const validated = validateProject(project);
+          // Read and validate before changing workspace configuration; failed scans are atomic.
+          const startingRevision = state.revision;
+          const sources = await snapshot(input.localRepository, input.paths);
+          if (state.revision !== startingRevision)
+            throw new Error("Workspace changed while connecting. Try again.");
+          change("Application repository connected", validated);
+          state.connections = {
+            ...state.connections,
+            localRepository: input.localRepository,
+            paths: input.paths,
+            lastChecked: new Date().toISOString(),
+          };
+          delete state.connections.lastError;
+          state.sourceSnapshot = sources;
+          state.sourceAlerts = [];
         } else if (path === "/api/intake/analyze") {
           state.intake = discover(
             state.project,

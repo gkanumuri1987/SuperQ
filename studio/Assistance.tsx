@@ -37,8 +37,16 @@ export default function Assistance({
   if (!plan || plan.generated) return null;
   return (
     <section className="automate-card">
-      <h2>Capture a flow or ask your local agents</h2>
-      <p>Optional help. Every result returns to the same plan for QE review.</p>
+      <h2>
+        {repositoryOnly && !plan.candidates.length
+          ? "Create your first test proposals"
+          : "Need help with these tests?"}
+      </h2>
+      <p>
+        {repositoryOnly && !plan.candidates.length
+          ? "Choose your local AI model to turn the scanned code into reviewable test cases."
+          : "Record a flow or ask AI for suggestions. You review every result."}
+      </p>
       <details open={!!recording}>
         <summary>Record a web flow</summary>
         <p>
@@ -229,15 +237,18 @@ export default function Assistance({
             questions before generating automation.
           </p>
         )}
-        <p>
-          Analyst → test designer → independent reviewer. At most three local
-          model calls, 4,000 output tokens per call, three-minute deadline. No
-          downloads, paid fallback, shell tools or automatic execution. The same
-          installed model runs separate scoped roles; agreement does not certify
-          accuracy. The Ollama daemon must report cloud disabled
-          (OLLAMA_NO_CLOUD=1); installed model metadata is checked before source
-          context is sent.
-        </p>
+        <details className="intake-ai-explanation">
+          <summary>How AI uses your source</summary>
+          <p>
+            Analyst → test designer → independent reviewer. At most three local
+            model calls, 4,000 output tokens per call, three-minute deadline. No
+            downloads, paid fallback, shell tools or automatic execution. The
+            same installed model runs separate scoped roles; agreement does not
+            certify accuracy. The Ollama daemon must report cloud disabled
+            (OLLAMA_NO_CLOUD=1); installed model metadata is checked before
+            source context is sent.
+          </p>
+        </details>
         <form
           className="form-stack"
           onSubmit={(e) => {

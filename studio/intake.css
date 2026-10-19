@@ -113,3 +113,127 @@
     flex-direction: column;
   }
 }
+
+/* Keep the first-run path focused while retaining existing tools on demand. */
+.intake-home [hidden] {
+  display: none !important;
+}
+.intake-home {
+  max-width: 820px;
+}
+.intake-progress {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.intake-progress button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 1px solid #dde4ef;
+  border-radius: 12px;
+  padding: 14px 10px;
+  background: #fff;
+  color: #53637b;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.intake-progress button[aria-current="step"] {
+  border-color: #315ff0;
+  background: #edf2ff;
+  color: #234bc2;
+  font-weight: 700;
+}
+.intake-progress button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.intake-progress button span {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+}
+.intake-view-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: -8px 0 18px;
+  color: #667084;
+  font-size: 12px;
+}
+.intake-view-controls button {
+  border: 0;
+  background: transparent;
+  padding: 8px;
+  color: #3155a3;
+  cursor: pointer;
+}
+.intake-connect-form {
+  margin-top: 24px;
+  border-top: 1px solid #e3e7ed;
+  padding-top: 24px;
+}
+.intake-advanced {
+  margin-top: 24px;
+  color: #667084;
+  font-size: 13px;
+}
+.intake-advanced > summary,
+.intake-ai-explanation > summary {
+  cursor: pointer;
+  padding: 12px 0;
+}
+.intake-home h1:focus {
+  outline: none;
+}
+.intake-home button:focus-visible,
+.intake-home summary:focus-visible {
+  outline: 3px solid #97adfb;
+  outline-offset: 3px;
+}
+@media (max-width: 600px) {
+  .intake-home .automate-card {
+    padding: 20px;
+  }
+  .intake-home .automate-intro h1 {
+    font-size: 28px;
+  }
+  .intake-progress button {
+    flex-direction: column;
+    gap: 6px;
+    font-size: 12px;
+  }
+}
+.intake-extra-help {
+  margin-bottom: 20px;
+}
+.intake-extra-help > summary {
+  padding: 12px 0;
+  color: #53637b;
+  cursor: pointer;
+  font-size: 13px;
+}
+.intake-source-options {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #667084;
+}
+.intake-source-options summary {
+  cursor: pointer;
+}
+.intake-home .automate-card details.intake-source-options {
+  padding: 8px 0 0;
+  margin: 8px 0 0;
+  border-top: 0;
+}
+.intake-home .automate-intro {
+  margin-bottom: 16px;
+}
+.intake-progress {
+  margin: 16px 0 24px;
+}
+.intake-home .automate-card > .button.primary {
+  margin-top: 12px;
+}

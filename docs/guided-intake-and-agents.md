@@ -1,6 +1,8 @@
 # Guided intake and corporate coding agents
 
-Open Studio → **Start from sources**. This is a working local workflow, with API and Playwright execution through the existing shared catalog. It is not a promise that reading a repository establishes complete application knowledge.
+Open Studio → **Start from sources**. The guided view shows one step at a time: **Connect → Review tests → Run**. It resumes at the current valid step; stale sources return to Connect, and generated drafts open Run. Step buttons let you revisit completed work. **Show all steps** restores the expanded view. Recording, extra AI help, tracker options and corporate-agent configuration are available through disclosures when needed. This is a working local workflow, with API and Playwright execution through the existing shared catalog. It is not a promise that reading a repository establishes complete application knowledge.
+
+![Guided first-time setup](images/intake-start.png)
 
 ## Starting points
 
@@ -15,8 +17,8 @@ A configured GitHub URL is a connection reference. Actual repository knowledge c
 
 ### Implementation-only repository: no stories, docs or existing tests
 
-1. Configure the application checkout and allowed committed implementation paths, then scan them read-only.
-2. Select API or web and the test environment; choose **Analyze & prepare review plan**. An implementation-only repository may initially produce zero deterministic cases. This does not require importing manual tests.
+1. In step 1, choose **Connect repository**. Enter the application URL, local checkout folder and selected committed file paths, then **Connect & scan**. Configuration is saved only after the scan succeeds.
+2. Select API or web and the test environment; choose **Continue to test cases**. An implementation-only repository may initially produce zero deterministic cases. This does not require importing manual tests.
 3. **Generate test cases from repository** opens automatically for repository-only intake. Select an installed local Ollama model and choose **Analyze functionality & propose tests**, or use your corporate MCP coding agent. Local analysis is opt-in; it does not download a model or silently route code to a cloud model.
 4. Inspect the **Observed functionality** summary, exact code excerpts/revisions, proposed cases and questions. Every functionality citation is checked before the designer proceeds. The API/web preference and environment name are supplied to the model. A citation proves where a proposal came from, not that the implementation matches intended business behavior.
 5. Stage accepted proposals, resolve mappings/prerequisites, confirm expected behavior and approve the plan as a QE. Only then generate draft automation. Generated drafts still need validation and saved-test review.
@@ -36,7 +38,7 @@ TC-1	Place an order	Click Place order	Order confirmed
 
 Repeat an ID/title to add steps. Supply a meaningful inventory source and source revision. This shortcut explicitly labels the imported cases as the QE's current scope. Use **Tracker / sprint intake** for existing feature lifecycle, stories, engineering documents and dependency keys (`source:externalId`). Native Jira/ADO test-suite plugins and continuous synchronization remain separate integration work; mapped exports work now.
 
-Choose API or web and a configured environment, then **Analyze & prepare review plan**. The plan shows manual steps, expected results, source excerpts, revisions, scope, prerequisites and any existing tests to reuse.
+Choose API or web and a configured environment, then **Continue to test cases**. The plan shows manual steps, expected results, source excerpts, revisions, scope, prerequisites and any existing tests to reuse.
 
 **Map actions & assertions** provides:
 
