@@ -68,3 +68,53 @@ Current proof requires a completed job, matching original project fingerprint, m
 Controlled tests cover exact filtered DAG selection, saved-variable ordering, secret-value omission, cloud limit/credential diagnostics without paid sessions, missing saved SSO, criteria-free false confidence, cross-environment/account evidence, stale source rejection, latest-job precedence, failed draft triage, the exact quick-test job, and shared-setup maintenance/staging/concurrent edits. Browser tests exercise work queue → Run → configuration preflight → real local API execution → selected evidence context, with desktop/mobile layout and browser-error checks. Existing recording, healing, auth, catalog, CLI, MCP and promotion regressions remain part of validation.
 
 Measure these targets on a representative customer application next: time to first asserted trial, manual steps per automated case, percentage of preflight-detectable blockers caught before launch, false-positive/false-negative coverage suggestions, maintenance review effort, and clean execution reliability by context. Targets are not measured outcomes yet. Passing framework tests does not certify a customer application for production promotion.
+
+## AI capability review and enhancement — 19 October 2026
+
+This follow-up reviewed the active Studio assistance workflow, source intake, local coordinator and model transport, MCP permissions, runner/browser integration, coverage, healing, reporting and release controls. It combines repository review and controlled regression tests with primary-source documentation. It is not an exhaustive audit of every line or a live vendor comparison. Astra was requested for the review; the active conversation could not switch models through its tools, so this is not presented as an Astra-authored review.
+
+### Trends that matter for SuperQ
+
+| Observed capability | Implication for SuperQ | Delivery decision |
+|---|---|---|
+| Playwright documents planner, generator and healer agents, with a plan-to-test workflow ([official agents guide](https://playwright.dev/docs/test-agents)) | SuperQ already has corresponding bounded planning/design/review and healing capabilities. The opportunity is easier evidence review and trustworthy output | Improve proposal quality and diagnostics before adding autonomous loops |
+| Agent evaluations assess tasks, trajectories and outcomes with suitable graders ([Anthropic evaluation guide](https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents)) | Model agreement alone is insufficient. Separate deterministic failures, business correctness and observed execution | Add repeatable adversarial contract tests and per-call metadata; a labeled live-model benchmark remains pending |
+| Local structured generation can constrain output schemas ([Ollama structured outputs](https://docs.ollama.com/capabilities/structured-outputs)) | Schema validity helps interoperability but cannot establish correct business expectations | Retain explicit local model selection, bounded output and QE approval; add assertion checks after parsing |
+| MCP guidance covers scope minimization, local-server risks and authorization boundaries ([official security guidance](https://modelcontextprotocol.io/docs/2025-11-25/tutorials/security/security_best_practices)) | Corporate agents need narrow tools and explicit permissions; MCP is not an execution sandbox | Retain separate local agent credentials and no approval tool; remote authorization and worker isolation remain separate engineering work |
+
+The product recommendation is **connect evidence → review suggested cases → map or record → inspect readiness → execute → maintain**. Keep AI quality inside that workflow rather than introducing another required dashboard or asking functional QEs to configure agent graphs.
+
+### Implemented findings
+
+| Finding | Change | Evidence |
+|---|---|---|
+| Whitespace-only cited excerpts could satisfy the nonempty string check and match whitespace in a source | Require nonblank excerpt text and nonblank source/revision | Invalid citations are rejected without changing the plan |
+| Generated assertions could match every string or require contradictory static equalities on the same response field | Versioned deterministic proposal checks, also enforced in intake preflight and materialization | Known vacuous patterns and contradictory static values block; valid empty equality/false/zero/null and unresolved variable expectations remain supported |
+| A renamed scenario could conceal a repeated flow; generic expected results were easy to overlook | Exact normalized-step/recipe duplicate review notes, vague-result prompts, status-only and missing-mapping notes | Reviewable suggestions retain candidate identity; no semantic-equivalence or complete-coverage claim |
+| Coordination reported only a generic failure | Safe stage-specific failures and call count, duration, serialized input/output bytes, prompt digest and check version | Failure fixtures cover provider errors, excessive output, bad schema, citations, reviewer indices and cancellation |
+| The coordinator cloned its inputs for staging but built later prompts from mutable original objects | Use the same frozen context for all roles and reference checks | Mutation during the analyst call cannot alter later role context; staging still rejects changed sources |
+| Injected workers could return much larger output than the normal transport allowed | Bound serialized structured worker output to 100 KB before validation | Excess output fails without retaining raw worker content |
+| QEs could not inspect/export the new quality evidence | Inline **AI proposal quality** panel in Start from sources, with downloadable JSON diagnostics | Browser integration checks actual panel rendering and downloaded content |
+
+`npm run eval:ai` runs a deterministic fixture suite. It makes **no model calls** and measures contract enforcement, not model reasoning accuracy. The full `npm run check` includes it. The model reviewer receives lint findings; structural blockers stop before a reviewer call, while all accepted scenarios remain subject to QE review. A model's acceptance does not clear review notes automatically.
+
+Quality checks are intentionally bounded: the generic-result detector covers a small English phrase list; duplicate matching is exact after whitespace normalization or exact recipe serialization; the regex check recognizes a short list of vacuous patterns. These are not semantic test deduplication, arbitrary regex analysis, proof that a cited sentence entails an assertion, or a hallucination detector. Empty substring checks are rejected as a policy for generated/mapped recipes; use explicit equality when an empty result is expected. Existing arbitrary code and project-level assertions are not globally rewritten by these checks.
+
+The diagnostic export contains identifiers, configured model name, counts, fingerprints, durations and check codes. It omits raw prompts, source excerpts, candidate titles/values and model prose. The workspace still retains the source data and proposal content needed for QE review. Serialized byte counts are not token usage, provider billing or measured hardware cost. Model names are configured labels, not immutable model digest attestations. No automatic retraining or paid fallback was introduced.
+
+### Prioritized product gaps and acceptance criteria
+
+| Order | Enhancement | Why it matters / minimum acceptance evidence |
+|---|---|---|
+| 1 | Pilot benchmark with QE-labeled valid, ambiguous, contradictory, malicious and obsolete scenarios | Compare installed model versions on oracle correctness, useful unique cases, abstention, reviewer correction effort and seeded-defect detection. Run repeat trials and record actual model digest, latency and machine/provider cost. Current fixtures do not establish model accuracy |
+| 2 | Single guided application pilot from inventory to first asserted test | Measure time to first useful automation, missing-context questions and manual edits. Deliver sample data/environment guidance and reusable domain templates; avoid making agent setup mandatory |
+| 3 | Grounded impact and coverage discovery across stories, EDs and contracts | Source authority and revision must be visible. Distinguish observed implementation from intended behavior, expose contradictory requirements, and measure missed features against a labeled inventory |
+| 4 | Failure grouping and context-preserving reruns | Cluster using operation/assertion/locator evidence; label root-cause suggestions as hypotheses. Preserve environment/account/browser/source identity, original failures and independent oracles |
+| 5 | Advanced browser authoring and resource policy | Explicit iframe/popup/upload/download and third-party resource rules, accessible controls and controlled fixtures. Do not widen network access implicitly to make a model's flow pass |
+| 6 | Native test inventory synchronization and DB validation designer | Paginated Jira/ADO suite import, revision conflicts and explicit publication; guided bounded queries and business reconciliation assertions. Prove against real tenants/databases |
+| 7 | Enterprise deployment foundation | Platform SSO/RBAC, tenant isolation, signed reviewer/audit identity, secrets management, durable jobs, isolated workers and recovery. Application SSO/session capture does not satisfy platform identity requirements |
+| 8 | Persistent evaluation history and reviewed learning | Store accepted/rejected/corrected suggestions with source and model identity; evaluate retrieval of approved reusable patterns on held-out tasks. Never silently turn previous generated guesses into authoritative requirements |
+| 9 | Optional governed model routing | Corporate gateway/host integration with per-project data policies, budget accounting and explicit providers; choose models from measured task quality and cost. The user's Astra selection for a coding review does not configure an Astra API integration inside SuperQ |
+| Later | Visual/accessibility checks, mobile and performance | Separate reviewed baselines and domain-specific outcome thresholds; functional pass rates cannot substitute for accessibility, load or mobile evidence |
+
+The strongest current foundation is traceable, reviewed execution. The biggest remaining AI gap is **measured business correctness on real application tasks**, followed by source/inventory synchronization and enterprise isolation. More autonomous agents would amplify these gaps unless those foundations are validated first.

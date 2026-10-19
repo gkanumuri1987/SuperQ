@@ -261,9 +261,7 @@ test("workspace integrates recorder, bounded local agents and authenticated trac
     await post("intake/analyze", { environment: "test", preference: "web" });
     await page.goto(`${app.url}/#intake`);
     await page.getByText("Capture a flow or ask your local agents").waitFor();
-    await page
-      .getByText("Record a web flow", { exact: true })
-      .click();
+    await page.getByText("Record a web flow", { exact: true }).click();
     await page.getByRole("button", { name: "Open recording browser" }).click();
     await expect
       .poll(() => captureBrowser?.contexts()[0]?.pages().length ?? 0)
@@ -292,12 +290,34 @@ test("workspace integrates recorder, bounded local agents and authenticated trac
     await expect
       .poll(async () => (await get()).coordination.state)
       .toBe("completed");
+    await page
+      .getByText("Three-agent coverage review · local Ollama", { exact: true })
+      .click();
+    await expect(
+      page.getByRole("region", { name: "AI proposal quality" }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(
+        "0 blocking findings · 1 review notes · 3 of 3 model calls used",
+      ),
+    ).toBeVisible();
+    const downloadEvent = page.waitForEvent("download");
+    await page
+      .getByRole("button", { name: "Export AI review diagnostics" })
+      .click();
+    const exportedFile = await (await downloadEvent).path();
+    const exported = JSON.parse(
+      await import("node:fs/promises").then((fs) =>
+        fs.readFile(exportedFile!, "utf8"),
+      ),
+    );
+    assert.equal(exported.diagnostics.calls.length, 3);
+    assert.equal(exported.humanApproval, "required");
+    assert.ok(!JSON.stringify(exported).includes("Health shows Ready"));
     if (process.env.SUPERQ_CAPTURE_STUDIO) {
       await page
-        .getByText("Three-agent coverage review · local Ollama", {
-          exact: true,
-        })
-        .click();
+        .getByRole("region", { name: "AI proposal quality" })
+        .screenshot({ path: "/tmp/superq-ai-quality-desktop.png" });
       await expect(
         page.getByText("Coordination: completed", { exact: true }),
       ).toBeVisible();
@@ -313,6 +333,9 @@ test("workspace integrates recorder, bounded local agents and authenticated trac
       await expect
         .poll(async () => (await page.locator(".sidebar").boundingBox())!.x)
         .toBeLessThan(-200);
+      await page
+        .getByRole("region", { name: "AI proposal quality" })
+        .screenshot({ path: "/tmp/superq-ai-quality-mobile.png" });
       await page.evaluate(() => window.scrollTo(0, 0));
       await page.screenshot({
         path: "/tmp/superq-assistance-mobile.png",

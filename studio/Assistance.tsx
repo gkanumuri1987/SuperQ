@@ -1,3 +1,4 @@
+import AIReview from "./AIReview";
 import SetupFlows from "./SetupFlows";
 import { useState } from "react";
 import type { WorkspaceState } from "../src/workspace-server";
@@ -255,6 +256,7 @@ export default function Assistance({
               </p>
             ))}
             {job.error && <p>{job.error}</p>}
+            <AIReview job={job} />
             {job.analysis?.questions.map((q, i) => (
               <p key={i}>{q}</p>
             ))}

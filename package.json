@@ -22,7 +22,8 @@
     "build:studio": "vite build --config studio/vite.config.ts",
     "typecheck:studio": "tsc -p studio/tsconfig.json",
     "format:studio": "prettier --write studio src/maintenance.ts src/workspace-server.ts src/workspace/sample.ts tests/maintenance.test.ts tests/workspace.test.ts tests/studio.test.ts",
-    "mcp": "tsx src/mcp-server.ts"
+    "mcp": "tsx src/mcp-server.ts",
+    "eval:ai": "tsx --test tests/ai-quality.test.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",

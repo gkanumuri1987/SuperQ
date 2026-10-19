@@ -155,3 +155,9 @@ Studio → **Environments & accounts** configures application roles, accounts, w
 ### SSO and MFA for application tests
 
 Studio supports guided SSO/MFA sign-in and expiring account-scoped browser sessions. Configured two-stage form login also supports per-account TOTP secrets. See [setup, CI use and provider limits](docs/sso-mfa.md). SuperQ platform sign-in/RBAC remains separate.
+
+### AI proposal quality and diagnostics
+
+Start from sources now shows deterministic checks beside local-agent suggestions: blank expectations, known vacuous API assertions and conflicting static equalities block staging; exact duplicate flows, generic results, status-only checks and missing mappings produce review notes. Checks also apply to mapped intake plans before review/generation. The inline report shows bounded model-call diagnostics and exports metadata without raw source excerpts or proposal values. Every scenario still requires QE review.
+
+Run `npm run eval:ai` for the deterministic AI contract fixtures (no inference or downloads). This does not benchmark live model accuracy. See the [AI capability review and prioritized enhancements](docs/studio-qe-architecture-review.md#ai-capability-review-and-enhancement--19-october-2026).

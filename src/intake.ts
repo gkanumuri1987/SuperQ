@@ -1,3 +1,4 @@
+import { assessProposal } from "./proposal-quality.js";
 import { setupCommands } from "./web-setups.js";
 import { SetupIds } from "./web-commands.js";
 import {
@@ -51,9 +52,12 @@ export const Recipe = z.discriminatedUnion("kind", [
 ]);
 export type Recipe = z.infer<typeof Recipe>;
 const Ref = z.object({
-  source: z.string(),
-  revision: z.string(),
-  excerpt: z.string().min(1),
+  source: z.string().trim().min(1),
+  revision: z.string().trim().min(1),
+  excerpt: z
+    .string()
+    .min(1)
+    .refine((value) => !!value.trim(), "Evidence excerpt must contain text"),
 });
 export const IntakePlan = z.object({
   id: z.string(),
@@ -530,6 +534,11 @@ export function materialize(project: Project, plan: IntakePlan): Project {
   const addLocator = (definition: z.infer<typeof locator>) =>
     ensureLocator(p, definition);
   for (const c of selected) {
+    const qualityBlocker = assessProposal(c).findings.find(
+      (f) => f.severity === "blocker",
+    );
+    if (qualityBlocker)
+      throw new Error(`Proposal quality: ${qualityBlocker.detail}`);
     if (c.disposition !== "current")
       throw new Error(
         `${c.title}: resolve scope or lifecycle before automation`,
@@ -703,6 +712,14 @@ export function preflight(project: Project, plan: IntakePlan) {
   for (const c of plan.candidates.filter((c) => c.selected)) {
     const block = (kind: string, detail: string, resolution: string) =>
       blockers.push({ candidateId: c.id, kind, detail, resolution });
+    for (const finding of assessProposal(c).findings.filter(
+      (f) => f.severity === "blocker",
+    ))
+      block(
+        "proposal-quality",
+        finding.detail,
+        "Correct the mapped assertion or expected result, then review the plan again.",
+      );
     if (c.disposition !== "current")
       block(
         "scope",
@@ -936,6 +953,14 @@ export function proposeCase(
   if (plan.candidates.length >= 500)
     throw new Error("Split intake into plans of at most 500 candidates");
   const proposal = CaseProposal.parse(input);
+  const quality = assessProposal(proposal, plan.candidates);
+  if (quality.status === "blocked")
+    throw new Error(
+      `Proposal quality: ${quality.findings
+        .filter((f) => f.severity === "blocker")
+        .map((f) => f.detail)
+        .join(" ")}`,
+    );
   for (const ref of proposal.evidence) {
     const file = snapshot?.files.find((f) => f.path === ref.source);
     const manual = planning?.cases.find(
@@ -991,6 +1016,7 @@ export function proposeCase(
     existingTestIds: [],
     questions: [
       "Agent-proposed scenario: exact citations establish provenance, not correctness of inferred behavior. A QE must confirm business expectations and semantic overlap with existing tests.",
+      ...quality.findings.map((f) => f.detail),
     ],
   });
   delete plan.review;
