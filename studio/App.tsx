@@ -1,3 +1,4 @@
+import PlanningScreen from "./Planning";
 import {
   useEffect,
   useState,
@@ -72,6 +73,7 @@ const navigation = [
   {
     label: "Design & build",
     items: [
+      { id: "planning", label: "Intake & sprint planning", icon: FileText },
       { id: "requirements", label: "Requirements", icon: FileText },
       { id: "tests", label: "Test library", icon: ListChecks },
       { id: "catalog", label: "Automation catalog", icon: Boxes },
@@ -534,6 +536,14 @@ export default function App() {
                 <X size={16} />
               </button>
             </div>
+          )}
+          {page === "planning" && (
+            <PlanningScreen
+              value={data.planning}
+              save={(planning) =>
+                mutate("planning", { planning }, "Planning intake saved")
+              }
+            />
           )}
           {page === "overview" && (
             <>

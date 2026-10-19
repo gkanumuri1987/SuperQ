@@ -12,7 +12,7 @@ npx playwright install chromium
 npm run studio
 ```
 
-Open `http://127.0.0.1:4310` for setup, requirements, visual test authoring, reusable actions, execution, coverage and maintenance. The change inbox shows affected tests with before/after validation, locator, workflow and functionality comparisons. Stage updates as drafts, record review, and run again. Optional allowlisted local Git monitoring detects committed changes while Studio is open. The initial workspace is a clearly labeled interactive sample. See the [Studio workflow guide](docs/studio-ux.md).
+Open `http://127.0.0.1:4310` for setup, requirements, visual test authoring, reusable actions, execution, coverage and maintenance. The change inbox shows affected tests with before/after validation, locator, workflow and functionality comparisons. Stage updates as drafts, record review, and run again. Optional allowlisted local Git monitoring detects committed changes while Studio is open. The initial workspace is a clearly labeled interactive sample. See the [Studio workflow guide](docs/studio-ux.md). Intake & sprint planning also accepts mapped manual-test exports with team, sprint, feature lifecycle, story, dependency and document evidence. See [sprint intake](docs/sprint-intake.md) for the format and current limits.
 
 ## Run locally
 

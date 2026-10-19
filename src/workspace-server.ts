@@ -33,7 +33,9 @@ import { createReport, writeReports, type Report } from "./reporting.js";
 import { Planner } from "./ai.js";
 import { ollamaProvider } from "./ollama.js";
 import { snapshot, changes, type Snapshot } from "./knowledge.js";
+import { Planning } from "./planning.js";
 export type WorkspaceState = {
+  planning?: Planning;
   revision: number;
   sample: boolean;
   sampleVersion?: 1 | 2;
@@ -73,7 +75,11 @@ export async function startWorkspace(
   let state: WorkspaceState;
   try {
     const raw = JSON.parse(await readFile(file, "utf8")) as WorkspaceState;
-    state = { ...raw, project: validateProject(raw.project) };
+    state = {
+      ...raw,
+      project: validateProject(raw.project),
+      planning: raw.planning ? Planning.parse(raw.planning) : undefined,
+    };
     state.runs = state.runs.map((r) =>
       r.state === "running"
         ? {
@@ -392,10 +398,18 @@ export async function startWorkspace(
           });
           return;
         }
-        if (path === "/api/project")
+        if (path === "/api/planning") {
+          state.planning = Planning.parse(data.planning);
+          state.revision++;
+          activity(
+            "Sprint intake updated",
+            "Manual cases and evidence saved for review",
+          );
+        } else if (path === "/api/project")
           change("Project updated", validateProject(data.project));
         else if (path === "/api/import") {
           change("Project imported", validateProject(data.project));
+          state.planning = undefined;
           state.sample = false;
           state.plan = null;
           state.sourceSnapshot = undefined;

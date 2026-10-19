@@ -148,3 +148,56 @@ test("Studio guides setup, change review, test editing and real focused executio
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("Studio imports sprint intake and preserves executable coverage", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "superq-intake-"));
+  const app = await startWorkspace({ port: 0, file: join(dir, "state.json") });
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    await page.goto(`${app.url}/#planning`);
+    await page
+      .getByRole("heading", {
+        name: "Test intake & sprint planning",
+        exact: true,
+      })
+      .waitFor();
+    const before = await (await fetch(`${app.url}/api/workspace`)).json();
+    const payload = {
+      team: "Payments QE",
+      sprint: "Sprint 42",
+      cases: [
+        {
+          source: "ADO",
+          externalId: "100",
+          revision: "1",
+          title: "Historical payment",
+          featureIds: ["unknown"],
+          steps: [{ action: "Pay", expected: "Confirmed" }],
+          dependsOn: ["ADO:missing"],
+        },
+      ],
+    };
+    await page
+      .getByLabel("Planning package JSON")
+      .fill(JSON.stringify(payload));
+    await page.getByRole("button", { name: "Save & review intake" }).click();
+    await page.getByText("Payments QE · Sprint 42", { exact: true }).waitFor();
+    await page
+      .getByRole("heading", { name: "ADO:100 · Historical payment" })
+      .waitFor();
+    assert.ok(
+      await page.getByText(/Import the missing prerequisite/).isVisible(),
+    );
+    const after = await (await fetch(`${app.url}/api/workspace`)).json();
+    assert.equal(after.planning.cases[0].externalId, "100");
+    assert.deepEqual(after.project, before.project);
+    assert.deepEqual(after.coverage, before.coverage);
+    await page.reload();
+    await page.getByText("Payments QE · Sprint 42", { exact: true }).waitFor();
+  } finally {
+    await browser.close();
+    await app.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
