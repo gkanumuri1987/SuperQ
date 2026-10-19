@@ -10,7 +10,7 @@ Acceptance: build and automated tests pass; real local browser/API flows pass an
 
 Choose one critical journey across UI → API → database and import a small set of QE cases and acceptance criteria. Add application-specific business actions, fixture factories and independent data assertions. Validate Postgres/Mongo/Snowflake with read-only accounts against disposable test datasets, including TLS, timeout, parameter-binding and permissions tests. Add OIDC/key-pair authentication where required. Keep missing specifications blocked.
 
-Deliver a guided workspace for manual test authoring, evidence review, catalog reuse, environment/suite configuration, blockers and run details. Integrate Jira/ADO field mapping, pagination, revision conflicts, incremental sync, test-management plugins and separately authorized result publication. Configure source-change webhooks and persisted source/test lineage. Add OpenAPI and schema parsing for grounded impact analysis.
+Extend the local Studio workspace with team workflows, authenticated connections and richer native configuration designers. Integrate Jira/ADO field mapping, pagination, revision conflicts, incremental sync, test-management plugins and separately authorized result publication. Configure source-change webhooks and persisted source/test lineage. Add OpenAPI and schema parsing for grounded impact analysis.
 
 Acceptance: every pilot criterion has an owner and reviewed test or documented exception; deliberate application defects are caught; results can be traced to exact application and automation revisions; source credentials cannot write.
 
@@ -47,3 +47,8 @@ Still required for enterprise rollout: live cloud account/tunnel validation; nat
 Acceptance-criterion mappings; explicit reviewer attestations tied to test/spec/evidence digests; all-approved-case coverage semantics; schema v2 report provenance; exact artifact/application identities; fresh complete release-matrix assessment; external-check and independent approval requirements; re-evaluation of raw evidence; step deadlines/cooperative cancellation; response capture; web-first text assertions; actionable audit; optional bounded loopback Ollama drafts; billing-violation disablement; loaded knowledge content hash verification; strict typechecking for tests/examples.
 
 Promotion remains `eligible-for-human-review` or `blocked`, never certification. Authentication/signing, protected CI provenance, deployed artifact verification, live integration pilots, hard worker isolation and operational validation remain open. See the detailed review document for the boundary of each implemented control.
+
+
+## Guided Studio workspace (implemented)
+
+React/Vite local workspace with setup wizard, requirements, visual API/browser test builder, reviewed drafts, shared catalogs, coverage map, real execution/report views, local AI drafts, version comparison, change proposals, manual resolution and recoverable project history. Read-only allowlisted Git monitoring surfaces committed changes/deletions and unknown source impact. Scoped mutations use request tokens and revision checks. See the Studio UX guide for supported workflows and remaining enterprise/native-design increments.

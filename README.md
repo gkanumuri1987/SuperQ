@@ -4,9 +4,19 @@ Evidence-driven automation for quality engineering teams. SuperQ keeps applicati
 
 **Status: runnable foundation, not a finished enterprise platform.** Web and API execution are demonstrated locally. PostgreSQL, MongoDB and Snowflake adapters and Jira/ADO read connectors need integration validation with your systems. AI supports optional local Ollama proposals and a provider interface. Healing remains a reviewable proposal boundary; no autonomous learning, model subscription or paid calls are enabled.
 
+## Open the guided Studio
+
+```sh
+npm ci
+npx playwright install chromium
+npm run studio
+```
+
+Open `http://127.0.0.1:4310` for setup, requirements, visual test authoring, reusable actions, execution, coverage and maintenance. The change inbox shows affected tests with before/after validation, locator, workflow and functionality comparisons. Stage updates as drafts, record review, and run again. Optional allowlisted local Git monitoring detects committed changes while Studio is open. The initial workspace is a clearly labeled interactive sample. See the [Studio workflow guide](docs/studio-ux.md).
+
 ## Run locally
 
-Requires Node.js 22+ and Git.
+Requires Node.js 22.12+ and Git.
 
 ```sh
 npm ci

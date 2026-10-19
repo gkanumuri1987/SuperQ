@@ -5,14 +5,15 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 export const Snapshot=z.object({revision:z.string(),files:z.array(z.object({path:z.string(),hash:z.string(),content:z.string()}))});
 export type Snapshot=z.infer<typeof Snapshot>;
-export async function snapshot(repo:string,paths:string[]):Promise<Snapshot> {
+export async function snapshot(repo:string,paths:string[],allowRemoved=false):Promise<Snapshot> {
   if(!paths.length) throw new Error('Explicit non-secret file paths required');
   const root=await realpath(repo);
   const git=(args:string[])=>execFileSync('git',['-C',root,...args],{encoding:'utf8',maxBuffer:8*1024*1024}).trim();
   const revision=git(['rev-parse','HEAD']);
-  const tracked=new Set(git(['ls-files']).split('\n')); const files:Snapshot['files']=[];
+  const tracked=new Set(git(['ls-tree','-r','--name-only','HEAD']).split('\n')); const files:Snapshot['files']=[];
   for(const path of [...new Set(paths)]) {
-    if(isAbsolute(path)||path.split('/').includes('..')||!tracked.has(path)||/(^|\/)(\.env[^/]*|[^/]*\.(pem|key)|credentials[^/]*)$/i.test(path)) throw new Error(`Unsafe or untracked source path: ${path}`);
+    if(isAbsolute(path)||path.split('/').includes('..')||/(^|\/)(\.env[^/]*|[^/]*\.(pem|key)|credentials[^/]*)$/i.test(path)) throw new Error(`Unsafe or untracked source path: ${path}`);
+    if(!tracked.has(path)){if(allowRemoved)continue;throw new Error(`Unsafe or untracked source path: ${path}`);}
     const absolute=resolve(root,path); const info=await lstat(absolute); const canonical=await realpath(absolute);
     if(info.isSymbolicLink()||relative(root,canonical).startsWith('..')||!info.isFile()||info.size>256_000) throw new Error(`Unsupported source path: ${path}`);
     // Read committed content so evidence always matches its declared revision.
