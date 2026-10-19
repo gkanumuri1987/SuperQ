@@ -1,3 +1,4 @@
+import type { Recording } from "../src/recorder";
 import Quality, { Capabilities, type Care } from "./Quality";
 import Intake from "./Intake";
 import type { preflight, IntakePlan } from "../src/intake";
@@ -67,6 +68,7 @@ import type { coverage } from "../src/coverage";
 import type { audit } from "../src/audit";
 type Data = WorkspaceState & {
   token: string;
+  recording: (Recording & { candidateId: string }) | null;
   care: Care;
   intakeStatus: {
     plan: IntakePlan | null;
@@ -617,6 +619,7 @@ export default function App() {
           )}
           {page === "intake" && (
             <Intake
+              recording={data.recording}
               state={data}
               status={data.intakeStatus}
               agent={data.agentConnection}
@@ -1677,6 +1680,44 @@ export default function App() {
                         </p>
                         <small>{new Date(r.at).toLocaleString()}</small>
                       </div>
+                      {r.traceWarnings?.map((w) => (
+                        <p key={w}>{w}</p>
+                      ))}
+                      {!!r.traces?.length && (
+                        <div>
+                          <small>
+                            Private traces · expire after 24 hours · may contain
+                            secrets
+                          </small>
+                          {r.traces.map((t) => (
+                            <div key={t.id}>
+                              <button
+                                className="button"
+                                onClick={() =>
+                                  void downloadTrace(t.id, data.token).catch(
+                                    (e) => setError(String(e.message)),
+                                  )
+                                }
+                              >
+                                {t.testId} · attempt {t.attempt} · Download
+                                trace
+                              </button>
+                              <button
+                                className="button"
+                                onClick={() =>
+                                  void mutate(
+                                    "traces/delete",
+                                    { id: t.id },
+                                    "Private trace deleted",
+                                  )
+                                }
+                              >
+                                Delete trace
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       {r.report && (
                         <a
                           className="button secondary"
@@ -3482,7 +3523,8 @@ function RunDialog({
     ),
     [ack, setAck] = useState(false),
     [testIds, setTestIds] = useState<string[]>([]),
-    [validateDrafts, setValidateDrafts] = useState(false);
+    [validateDrafts, setValidateDrafts] = useState(false),
+    [captureTrace, setCaptureTrace] = useState(false);
   const affected =
     data.plan?.items
       .filter((i) => i.status === "pending")
@@ -3512,6 +3554,8 @@ function RunDialog({
             testIds,
             validateDrafts,
             acknowledgeCloud: ack,
+            captureTrace,
+            acknowledgeSensitiveTrace: captureTrace,
           });
         }}
       >
@@ -3597,6 +3641,17 @@ function RunDialog({
               />
             </Field>
           </div>
+          <label>
+            <input
+              type="checkbox"
+              checked={captureTrace}
+              onChange={(e) => setCaptureTrace(e.target.checked)}
+            />{" "}
+            Capture private Playwright traces. I understand screenshots, DOM and
+            network may contain secrets or personal data. Local retention: 24
+            hours; up to 20 journeys per run. Traces are downloaded separately
+            from reports.
+          </label>
           <div className="run-selection">
             <span className="field-label">Tests to run</span>
             <label>
@@ -3866,4 +3921,17 @@ function AIDialog({
       </div>
     </Modal>
   );
+}
+
+async function downloadTrace(id: string, token: string) {
+  const response = await fetch(`/api/traces/${id}`, {
+    headers: { "x-superq-token": token },
+  });
+  if (!response.ok) throw new Error("Trace unavailable or expired");
+  const url = URL.createObjectURL(await response.blob()),
+    a = document.createElement("a");
+  a.href = url;
+  a.download = `superq-${id}.zip`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

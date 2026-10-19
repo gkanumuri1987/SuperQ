@@ -1,3 +1,5 @@
+import Assistance from "./Assistance";
+import type { Recording } from "../src/recorder";
 import { useState } from "react";
 import type { WorkspaceState } from "../src/workspace-server";
 import type { Candidate, IntakePlan, Recipe } from "../src/intake";
@@ -6,6 +8,7 @@ import "./automate.css";
 import "./intake.css";
 type Props = {
   state: WorkspaceState;
+  recording: (Recording & { candidateId: string }) | null;
   status: {
     plan: IntakePlan | null;
     stale: boolean;
@@ -15,7 +18,14 @@ type Props = {
   action: (path: string, body: Record<string, unknown>) => Promise<boolean>;
   go: (page: string) => void;
 };
-export default function Intake({ state, status, agent, action, go }: Props) {
+export default function Intake({
+  state,
+  recording,
+  status,
+  agent,
+  action,
+  go,
+}: Props) {
   const [environment, setEnvironment] = useState(
     Object.keys(state.project.environments)[0] ?? "",
   );
@@ -288,6 +298,7 @@ export default function Intake({ state, status, agent, action, go }: Props) {
           {error}
         </p>
       )}
+      <Assistance state={state} recording={recording} action={action} />
       {plan && (
         <section className="automate-card intake-section">
           <h2>

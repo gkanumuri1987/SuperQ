@@ -931,6 +931,12 @@ export function proposeCase(
       ...(planning?.features.map((f) => f.evidence) ?? []),
     ];
     const supported =
+      project.evidence.some(
+        (r) =>
+          r.source === ref.source &&
+          r.revision === ref.revision &&
+          r.excerpt.includes(ref.excerpt),
+      ) ||
       (file &&
         snapshot?.revision === ref.revision &&
         file.content.includes(ref.excerpt)) ||

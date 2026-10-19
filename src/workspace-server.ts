@@ -1,3 +1,11 @@
+import { startRecording } from "./recorder.js";
+import { TraceStore, type TraceArtifact } from "./trace-artifacts.js";
+import {
+  coordinate,
+  applyCoordination,
+  type Coordination,
+  type Worker,
+} from "./coordinator.js";
 import { frameworkHealth } from "./framework-health.js";
 import { catalogHealth, ensureLocator } from "./catalog.js";
 import { LocatorDefinition } from "./web-commands.js";
@@ -60,6 +68,7 @@ import { ollamaProvider } from "./ollama.js";
 import { snapshot, changes, type Snapshot } from "./knowledge.js";
 import { Planning } from "./planning.js";
 export type WorkspaceState = {
+  coordination?: Coordination;
   frameworkCheck?: {
     at: string;
     fingerprint: string;
@@ -90,6 +99,8 @@ export type WorkspaceState = {
     at: string;
     report?: Report;
     draftValidation?: boolean;
+    traces?: TraceArtifact[];
+    traceWarnings?: string[];
     sourceFingerprint?: string;
     sourceContext?: string;
     error?: string;
@@ -105,6 +116,8 @@ export async function startWorkspace(
     dev?: boolean;
     authDirectory?: string;
     authConnector?: Parameters<typeof beginSignIn>[4];
+    recorderConnector?: Parameters<typeof startRecording>[2];
+    agentWorker?: Worker;
   } = {},
 ) {
   const port = options.port ?? 4310;
@@ -120,6 +133,16 @@ export async function startWorkspace(
   } | null = null;
   const agentFile = join(dirname(file), "agent-connection.json");
   let agentAccess: { token: string; allowTrials: boolean } | null = null;
+  let recordingStarting = false;
+  let recording: {
+    candidateId: string;
+    planId: string;
+    fingerprint: string;
+    handle: Awaited<ReturnType<typeof startRecording>>;
+  } | null = null;
+  let coordination: ReturnType<typeof coordinate> | null = null;
+  const traceDirectory = join(dirname(file), "private-traces");
+  await new TraceStore(traceDirectory).prune();
   let busy = false;
   let scanning = false;
   let state: WorkspaceState;
@@ -132,6 +155,11 @@ export async function startWorkspace(
       intake: raw.intake ? IntakePlan.parse(raw.intake) : undefined,
       planning: raw.planning ? Planning.parse(raw.planning) : undefined,
     };
+    if (state.coordination?.state === "running") {
+      state.coordination.state = "failed";
+      state.coordination.error =
+        "Workspace restarted; start coordination again";
+    }
     state.runs = state.runs.map((r) =>
       r.state === "running"
         ? {
@@ -332,6 +360,8 @@ export async function startWorkspace(
         testIds: z.array(z.string()).default([]),
         validateDrafts: z.boolean().default(false),
         acknowledgeCloud: z.boolean().optional(),
+        captureTrace: z.boolean().default(false),
+        acknowledgeSensitiveTrace: z.boolean().default(false),
       })
       .parse(data);
     const profile = state.project.browsers[input.profile];
@@ -347,6 +377,10 @@ export async function startWorkspace(
     )
       throw new Error(
         "Confirm cloud session costs and configured session limits",
+      );
+    if (input.captureTrace && !input.acknowledgeSensitiveTrace)
+      throw new Error(
+        "Confirm that private traces can contain application secrets and personal data",
       );
     const selected = new Set(
       input.testIds.length
@@ -421,7 +455,15 @@ export async function startWorkspace(
     await save();
 
     void (async () => {
-      const adapters = createAdapters(profile, undefined, sessionDirectory);
+      const traces = input.captureTrace
+        ? new TraceStore(traceDirectory)
+        : undefined;
+      const adapters = createAdapters(
+        profile,
+        undefined,
+        sessionDirectory,
+        traces,
+      );
       try {
         const results = await run(
           project,
@@ -459,6 +501,10 @@ export async function startWorkspace(
           "Run could not complete. Check browser installation, environment and adapter configuration.";
       } finally {
         await adapters.close().catch(() => {});
+        if (traces) {
+          job.traces = traces.artifacts;
+          job.traceWarnings = traces.warnings;
+        }
         busy = false;
         state.revision++;
         await save();
@@ -739,7 +785,15 @@ export async function startWorkspace(
           });
           return;
         }
-        if (busy || scanning || signInStarting || signIn)
+        if (
+          busy ||
+          scanning ||
+          signInStarting ||
+          signIn ||
+          recordingStarting ||
+          recording ||
+          coordination?.job.state === "running"
+        )
           throw new Error("Wait for the active run, scan or sign-in to finish");
         if (data.action === "analyze") {
           state.intake = discover(
@@ -798,6 +852,12 @@ export async function startWorkspace(
         json(res, 200, {
           ...state,
           token,
+          recording: recording
+            ? {
+                candidateId: recording.candidateId,
+                ...recording.handle.snapshot(),
+              }
+            : null,
           care: {
             frameworkCurrent:
               state.frameworkCheck?.fingerprint ===
@@ -873,6 +933,29 @@ export async function startWorkspace(
         });
         return;
       }
+      if (path.startsWith("/api/traces/") && req.method === "GET") {
+        if (
+          req.headers["x-superq-token"] !== token ||
+          req.headers["sec-fetch-site"] === "cross-site"
+        ) {
+          json(res, 403, { error: "Workspace request token required" });
+          return;
+        }
+        const id = path.split("/")[3],
+          artifact = state.runs
+            .flatMap((r) => r.traces ?? [])
+            .find((t) => t.id === id);
+        if (!artifact) throw new Error("Trace not found");
+        const bytes = await new TraceStore(traceDirectory).read(artifact);
+        res.writeHead(200, {
+          "content-type": "application/zip",
+          "content-disposition": `attachment; filename="superq-${artifact.id}.zip"`,
+          "cache-control": "no-store",
+          "x-content-type-options": "nosniff",
+        });
+        res.end(bytes);
+        return;
+      }
       if (path.startsWith("/api/reports/") && req.method === "GET") {
         const id = path.split("/")[3];
         const format = path.split("/")[4];
@@ -929,6 +1012,35 @@ export async function startWorkspace(
         ) {
           json(res, 409, {
             error: "Finish or cancel the active SSO/MFA sign-in first.",
+          });
+          return;
+        }
+        if (recordingStarting) {
+          json(res, 409, {
+            error:
+              "The recording browser is starting. Wait for launch before saving or cancelling.",
+          });
+          return;
+        }
+        if (
+          recording &&
+          ![
+            "/api/recorder/assert",
+            "/api/recorder/finish",
+            "/api/recorder/cancel",
+          ].includes(path)
+        ) {
+          json(res, 409, {
+            error: "Finish or cancel the browser recording first",
+          });
+          return;
+        }
+        if (
+          coordination?.job.state === "running" &&
+          path !== "/api/coordination/cancel"
+        ) {
+          json(res, 409, {
+            error: "Wait for or cancel agent coordination first",
           });
           return;
         }
@@ -998,6 +1110,167 @@ export async function startWorkspace(
               z.number().int().min(0).parse(data.observationIndex),
             ),
           );
+        } else if (path === "/api/recorder/start") {
+          if (!state.intake || state.intake.generated)
+            throw new Error("Analyze a fresh intake plan first");
+          assertPlanCurrent(
+            state.intake,
+            state.project,
+            state.planning,
+            state.sourceSnapshot,
+          );
+          const candidate = state.intake.candidates.find(
+            (c) => c.id === data.candidateId,
+          );
+          if (
+            !candidate ||
+            candidate.disposition !== "current" ||
+            state.intake.preference !== "web"
+          )
+            throw new Error("Choose a current web candidate before recording");
+          const env = state.project.environments[state.intake.environment]!;
+          if (env.login || env.sso)
+            throw new Error(
+              "The recorder currently supports anonymous environments. Map authenticated flows manually using saved accounts.",
+            );
+          recordingStarting = true;
+          let handle: Awaited<ReturnType<typeof startRecording>>;
+          try {
+            handle = await startRecording(
+              env.baseURL,
+              z.string().parse(data.path),
+              options.recorderConnector,
+            );
+          } finally {
+            recordingStarting = false;
+          }
+          recording = {
+            candidateId: candidate.id,
+            planId: state.intake.id,
+            fingerprint: projectFingerprint(state.project),
+            handle,
+          };
+          state.revision++;
+        } else if (path === "/api/recorder/assert") {
+          if (!recording) throw new Error("Start recording first");
+          recording.handle.assert(data.command);
+          state.revision++;
+        } else if (path === "/api/recorder/finish") {
+          if (
+            !recording ||
+            !state.intake ||
+            recording.planId !== state.intake.id ||
+            recording.fingerprint !== projectFingerprint(state.project)
+          )
+            throw new Error("Recording context changed");
+          assertPlanCurrent(
+            state.intake,
+            state.project,
+            state.planning,
+            state.sourceSnapshot,
+          );
+          const recipe = recording.handle.finish();
+          const candidate = state.intake.candidates.find(
+            (c) => c.id === recording!.candidateId,
+          )!;
+          candidate.questions = [
+            ...new Set([
+              ...candidate.questions,
+              ...recording.handle
+                .snapshot()
+                .notices.map((n) => `Recording review: ${n}`),
+            ]),
+          ];
+          updateCandidate({
+            candidateId: recording.candidateId,
+            patch: { recipe },
+          });
+          await recording.handle.close();
+          recording = null;
+          activity(
+            "Recording saved as draft",
+            "Review all controls, expected results and recorded.field test-data placeholders before approving.",
+          );
+        } else if (path === "/api/recorder/cancel") {
+          await recording?.handle.close();
+          recording = null;
+          state.revision++;
+        } else if (path === "/api/coordination/start") {
+          if (!state.intake || state.intake.generated)
+            throw new Error("Analyze a fresh intake plan first");
+          assertPlanCurrent(
+            state.intake,
+            state.project,
+            state.planning,
+            state.sourceSnapshot,
+          );
+          const model = z.string().trim().min(1).max(200).parse(data.model);
+          if (!options.agentWorker) ollamaProvider(model);
+          const worker: Worker =
+            options.agentWorker ??
+            (async (_role, schema, prompt, signal) => {
+              const transport: typeof fetch = (input, init) =>
+                fetch(input, {
+                  ...init,
+                  signal: AbortSignal.any([
+                    signal,
+                    ...(init?.signal ? [init.signal] : []),
+                  ]),
+                });
+              return (
+                await ollamaProvider(
+                  model,
+                  undefined,
+                  transport,
+                  schema,
+                )({ prompt, maxOutputTokens: 4000 })
+              ).json;
+            });
+          coordination = coordinate(
+            state.project,
+            state.intake,
+            state.planning,
+            state.sourceSnapshot,
+            model,
+            worker,
+          );
+          state.coordination = coordination.job;
+          state.revision++;
+          await save();
+          void coordination.done
+            .then(async () => {
+              state.revision++;
+              await save();
+            })
+            .catch(() => {});
+        } else if (path === "/api/coordination/cancel") {
+          coordination?.cancel();
+          await coordination?.done;
+          state.revision++;
+        } else if (path === "/api/coordination/apply") {
+          if (!state.coordination || !state.intake)
+            throw new Error("No agent proposals");
+          state.intake = applyCoordination(
+            state.coordination,
+            state.project,
+            state.intake,
+            state.planning,
+            state.sourceSnapshot,
+          );
+          state.revision++;
+          activity(
+            "Agent proposals staged",
+            "QE review is still required. No tests were approved or run.",
+          );
+        } else if (path === "/api/traces/delete") {
+          const job = state.runs.find((r) =>
+              r.traces?.some((t) => t.id === data.id),
+            ),
+            artifact = job?.traces?.find((t) => t.id === data.id);
+          if (!job || !artifact) throw new Error("Trace not found");
+          await new TraceStore(traceDirectory).remove(artifact);
+          job.traces = job.traces!.filter((t) => t.id !== artifact.id);
+          state.revision++;
         } else if (path === "/api/intake/analyze") {
           state.intake = discover(
             state.project,
@@ -1383,12 +1656,16 @@ export async function startWorkspace(
     await save();
   }
   const timer = setInterval(() => {
+    void new TraceStore(traceDirectory).prune().catch(() => {});
     if (
       state.connections.watch &&
       !busy &&
       !scanning &&
       !signIn &&
-      !signInStarting
+      !signInStarting &&
+      !recordingStarting &&
+      !recording &&
+      coordination?.job.state !== "running"
     )
       void scan().catch(async () => {
         state.connections.lastError =
@@ -1404,6 +1681,9 @@ export async function startWorkspace(
       clearInterval(timer);
       agentAccess = null;
       await rm(agentFile, { force: true });
+      await recording?.handle.close();
+      coordination?.cancel();
+      await coordination?.done;
       await signIn?.handle.cancel();
       await vite?.close();
       await new Promise<void>((resolve) => server.close(() => resolve()));

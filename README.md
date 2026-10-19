@@ -24,6 +24,10 @@ The included **stdio MCP server** lets a permitted corporate Copilot or another 
 
 Top shortcuts now connect generation, catalog reuse, reports, feature coverage and **Quality & maintenance**. Configure bounded local healing, inspect package/lockfile/browser health, and review duplicate-flow candidates. Intake can generate from documented criteria with no tests and enhance an existing empty manual case while preserving its ID/data. Guided Playwright flows also support dropdowns, checkboxes, URL/value/visibility/count assertions and independent checkpoints. See [setup and boundaries](docs/automation-care.md).
 
+## Recording, traces and local agents
+
+**Start from sources** can record anonymous web interactions into an editable, catalog-backed draft. Entered values become test-data placeholders; expected results come from the QE. **Run** offers opt-in private Playwright traces with authenticated downloads and expiry. Optional local Ollama coordination runs separate analyst, designer and reviewer calls, then stages evidence-backed proposals for QE review. See [workflow, limits and validation](docs/recording-traces-and-agents.md).
+
 ## Run locally
 
 Requires Node.js 22.12+ and Git.
@@ -68,6 +72,8 @@ Optional local AI is now available through `suggest project.json REQ-ID --model 
 | Knowledge | Explicit tracked-file snapshots at committed revisions, hashes and change reports; no source writes |
 | AI controls | Provider interface, evidence reference validation, bounded reservations, in-process cache, no retry loops |
 | Healing | Opt-in bounded local locator alternatives; original failure retained; staged draft repairs and clean-rerun gates |
+| Capture & diagnostics | Anonymous web recording, explicit oracles, private opt-in native Playwright traces |
+| Agent coordination | Three bounded local Ollama roles; cited proposals, independent review, cancellation and stale-input rejection |
 | BDD | Runnable Cucumber scenario reuses the same catalog and execution engine |
 | Trackers | Programmatic read-only Jira Cloud issue and Azure DevOps work-item connectors |
 | CI | GitHub Actions and Azure Pipelines examples |

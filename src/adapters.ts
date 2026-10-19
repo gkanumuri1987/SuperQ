@@ -1,3 +1,4 @@
+import type { TraceStore } from "./trace-artifacts.js";
 import { webCommandSchema, resolveLocator } from "./web-commands.js";
 import { loadSession, authDirectory, totp, AuthenticationRequired } from './auth-session.js';
 import { request, expect, type Browser } from '@playwright/test';
@@ -17,7 +18,7 @@ export function readQuery(sql: string) {
 }
 function secret(name:string) { const value=process.env[name]; if(!value) throw new Error(`Missing secret environment variable ${name}`); return value; }
 const sqlInput=z.object({query:z.string().min(1),params:z.array(z.union([z.string(),z.number(),z.boolean(),z.null()])).default([])}).strict();
-export function createAdapters(rawProfile:unknown={provider:'local'}, connector:typeof openBrowser=openBrowser,sessionDirectory=authDirectory()) {
+export function createAdapters(rawProfile:unknown={provider:'local'}, connector:typeof openBrowser=openBrowser,sessionDirectory=authDirectory(), traces?:TraceStore) {
   const profile=BrowserProfile.parse(rawProfile);
   const registry = new Registry(); const browsers=new Set<Browser>();
   registry.register('api:request',async(input,ctx)=>{
@@ -38,6 +39,7 @@ export function createAdapters(rawProfile:unknown={provider:'local'}, connector:
     const storageState=ctx.account&&ctx.sso?await loadSession(ctx.project,ctx.environment!,ctx.account.id,sessionDirectory):undefined;
     const browser=await connector(profile,`${ctx.testId??'SuperQ journey'} (attempt ${ctx.attempt??1})`); browsers.add(browser);
     let context:Awaited<ReturnType<Browser['newContext']>>|undefined;
+    let stopTrace:(()=>Promise<void>)|undefined;
     const abort=()=>{void browser.close().catch(()=>{});};ctx.signal?.addEventListener('abort',abort,{once:true});
     try {
       if(ctx.signal?.aborted)throw new Error('Browser journey cancelled');
@@ -62,6 +64,7 @@ export function createAdapters(rawProfile:unknown={provider:'local'}, connector:
         await expect(page).toHaveURL(successURL.href);
         }catch{throw new AuthenticationRequired('Form sign-in or MFA was not accepted. Check the account, authentication settings and provider response.');}
       }
+      if(traces){try{stopTrace=await traces.start(context,ctx.testId??'journey',ctx.attempt??1);}catch{traces.warn();}}
       let commandIndex=0;
       for(const c of i.commands) {
         commandIndex++;
@@ -113,7 +116,7 @@ export function createAdapters(rawProfile:unknown={provider:'local'}, connector:
         }
       }
       return {url:page.url(),text,checkpoints};
-    } finally {ctx.signal?.removeEventListener('abort',abort); try {await context?.close();} finally {await browser.close();browsers.delete(browser);} }
+    } finally {ctx.signal?.removeEventListener('abort',abort); try {try {await stopTrace?.().catch(()=>traces?.warn());} finally {await context?.close();}} finally {await browser.close();browsers.delete(browser);} }
   });
   registry.register('postgres:query',async input=>{
     const i=sqlInput.parse(input); readQuery(i.query);
