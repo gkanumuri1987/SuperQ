@@ -1,9 +1,11 @@
-import { request, chromium, type Browser, type BrowserContext } from '@playwright/test';
+import { request, type Browser } from '@playwright/test';
 import { Client } from 'pg';
 import { MongoClient } from 'mongodb';
 import snowflake from 'snowflake-sdk';
 import { z } from 'zod';
 import { Registry } from './runner.js';
+import { BrowserProfile } from './config.js';
+import { openBrowser } from './browser.js';
 
 // Adapters enforce a narrow operation surface. Database credentials MUST also use
 // database-enforced read-only roles; SQL text checks are not an authorization boundary.
@@ -13,9 +15,9 @@ export function readQuery(sql: string) {
 }
 function secret(name:string) { const value=process.env[name]; if(!value) throw new Error(`Missing secret environment variable ${name}`); return value; }
 const sqlInput=z.object({query:z.string().min(1),params:z.array(z.union([z.string(),z.number(),z.boolean(),z.null()])).default([])}).strict();
-export function createAdapters() {
-  const registry = new Registry(); let browser:Browser|undefined;
-  const contexts: BrowserContext[]=[];
+export function createAdapters(rawProfile:unknown={provider:'local'}, connector:typeof openBrowser=openBrowser) {
+  const profile=BrowserProfile.parse(rawProfile);
+  const registry = new Registry(); const browsers=new Set<Browser>();
   registry.register('api:request',async(input,ctx)=>{
     const i=z.object({path:z.string(),method:z.enum(['GET','POST','PUT','PATCH','DELETE','HEAD']).default('GET'),body:z.unknown().optional(),headers:z.record(z.string(),z.string()).optional()}).strict().parse(input);
     const url=new URL(i.path,ctx.baseURL); if(url.origin!==new URL(ctx.baseURL).origin) throw new Error('Cross-origin API request denied');
@@ -31,8 +33,12 @@ export function createAdapters() {
       z.object({type:z.literal('text'),locator:z.string()}).strict(),
     ]);
     const i=z.object({commands:z.array(command).min(1)}).strict().parse(input);
-    browser ??= await chromium.launch(); const context=await browser.newContext(); contexts.push(context);
+    // One journey owns one browser session, including cloud sessions. No mutable
+    // session is shared across parallel tests or retries.
+    const browser=await connector(profile,`${ctx.testId??'SuperQ journey'} (attempt ${ctx.attempt??1})`); browsers.add(browser);
+    let context:Awaited<ReturnType<Browser['newContext']>>|undefined;
     try {
+      context=await browser.newContext({viewport:profile.viewport,locale:profile.locale,timezoneId:profile.timezoneId});
       const origin=new URL(ctx.baseURL).origin;
       await context.route('**/*',async route=> { const url=new URL(route.request().url()); if(url.origin===origin) await route.continue(); else await route.abort(); });
       const page=await context.newPage(); page.setDefaultTimeout(15_000); const text:Record<string,string>={};
@@ -45,7 +51,7 @@ export function createAdapters() {
         else { await locator.waitFor({state:'visible'}); text[c.locator]=await locator.innerText(); }
       }
       return {url:page.url(),text};
-    } finally { await context.close(); contexts.splice(contexts.indexOf(context),1); }
+    } finally { try {await context?.close();} finally {await browser.close();browsers.delete(browser);} }
   });
   registry.register('postgres:query',async input=>{
     const i=sqlInput.parse(input); readQuery(i.query);
@@ -68,5 +74,5 @@ export function createAdapters() {
       return {rows,rowCount:rows.length};
     } finally { await new Promise<void>(resolve=>db.destroy(()=>resolve())); }
   });
-  return {registry,close:async()=>{await Promise.all(contexts.map(x=>x.close())); await browser?.close();}};
+  return {registry,close:async()=>{const closed=await Promise.allSettled([...browsers].map(x=>x.close()));browsers.clear();if(closed.some(x=>x.status==='rejected')) throw new Error('Browser cleanup failed; connection details omitted.');}};
 }

@@ -15,6 +15,8 @@ try {
   }
   if(!ready||exited) throw new Error('Reference server did not become ready');
   await execute(['run','superq','--','run','examples/project.json','local','smoke']);
-  await execute(['run','superq','--','run','examples/project.json','local','browser']);
+  await execute(['run','superq','--','run','examples/project.json','local','regression','--profiles',process.env.SUPERQ_TEST_PROFILES??'local','--workers','2']);
+  await execute(['run','superq','--','plan','examples/project.json','local','regression','--tags','smoke']);
+  await execute(['run','superq','--','doctor','examples/project.json']);
   await execute(['run','bdd']);
 } finally {server.kill();}

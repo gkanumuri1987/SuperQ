@@ -1,19 +1,214 @@
 {
   "name": "SuperQ reference project",
-  "evidence": [{"id":"DOC-1","source":"examples/requirements.md","revision":"reference-v1","excerpt":"GET /health returns HTTP 200 and {status: ok}. The health page shows Service healthy."}],
+  "evidence": [
+    {
+      "id": "DOC-1",
+      "source": "examples/requirements.md",
+      "revision": "reference-v1",
+      "excerpt": "GET /health returns HTTP 200 and {status: ok}. The health page shows Service healthy."
+    }
+  ],
   "requirements": [
-    {"id":"REQ-HEALTH","title":"API health contract","risk":"critical","evidenceIds":["DOC-1"]},
-    {"id":"REQ-WEB","title":"Visible health status","risk":"high","evidenceIds":["DOC-1"]},
-    {"id":"REQ-DATA","title":"Database reconciliation pending specification","risk":"high","evidenceIds":["DOC-1"]}
+    {
+      "id": "REQ-HEALTH",
+      "title": "API health contract",
+      "risk": "critical",
+      "evidenceIds": [
+        "DOC-1"
+      ]
+    },
+    {
+      "id": "REQ-WEB",
+      "title": "Visible health status",
+      "risk": "high",
+      "evidenceIds": [
+        "DOC-1"
+      ]
+    },
+    {
+      "id": "REQ-DATA",
+      "title": "Database reconciliation pending specification",
+      "risk": "high",
+      "evidenceIds": [
+        "DOC-1"
+      ]
+    }
   ],
-  "catalog":[{"id":"health-request","kind":"api","operation":"request","description":"Shared HTTP request adapter"},{"id":"health-page","kind":"web","operation":"journey","description":"Shared browser journey adapter"}],
-  "locators":{"health-status":{"strategy":"testId","value":"health-status"}},
-  "tests":[
-    {"id":"TC-API","title":"Health endpoint is operational","origin":"qe","status":"approved","requirementIds":["REQ-HEALTH"],"evidenceIds":["DOC-1"],"suites":["smoke"],"steps":[{"action":"health-request","input":{"path":"/health"},"assertions":[{"path":"status","operator":"equals","expected":200},{"path":"body.status","operator":"equals","expected":"ok"}]}]},
-    {"id":"TC-WEB","title":"Health page presents service state","origin":"qe","status":"approved","requirementIds":["REQ-WEB"],"evidenceIds":["DOC-1"],"suites":["browser"],"steps":[{"action":"health-page","input":{"commands":[{"type":"goto","path":"/"},{"type":"text","locator":"health-status"}]},"assertions":[{"path":"text.health-status","operator":"equals","expected":"Service healthy"}]}]},
-    {"id":"TC-DATA-DRAFT","title":"Reconcile source and warehouse totals","origin":"ai","status":"draft","requirementIds":["REQ-DATA"],"evidenceIds":["DOC-1"],"suites":["data"],"blockedBy":["Need business reconciliation rule and source evidence"],"steps":[]}
+  "catalog": [
+    {
+      "id": "health-request",
+      "kind": "api",
+      "operation": "request",
+      "description": "Shared HTTP request adapter"
+    },
+    {
+      "id": "health-page",
+      "kind": "web",
+      "operation": "journey",
+      "description": "Shared browser journey adapter"
+    }
   ],
-  "data":{"tenant":"reference"},
-  "environments":{"local":{"baseURL":"http://127.0.0.1:4173","data":{}}},
-  "suites":{"smoke":{"data":{}},"browser":{"data":{}},"data":{"data":{}}}
+  "locators": {
+    "health-status": {
+      "strategy": "testId",
+      "value": "health-status"
+    }
+  },
+  "tests": [
+    {
+      "id": "TC-API",
+      "title": "Health endpoint is operational",
+      "origin": "qe",
+      "status": "approved",
+      "requirementIds": [
+        "REQ-HEALTH"
+      ],
+      "evidenceIds": [
+        "DOC-1"
+      ],
+      "suites": [
+        "smoke",
+        "regression"
+      ],
+      "steps": [
+        {
+          "action": "health-request",
+          "input": {
+            "path": "/health"
+          },
+          "assertions": [
+            {
+              "path": "status",
+              "operator": "equals",
+              "expected": 200
+            },
+            {
+              "path": "body.status",
+              "operator": "equals",
+              "expected": "ok"
+            }
+          ]
+        }
+      ],
+      "tags": [
+        "smoke",
+        "api"
+      ],
+      "retrySafe": true
+    },
+    {
+      "id": "TC-WEB",
+      "title": "Health page presents service state",
+      "origin": "qe",
+      "status": "approved",
+      "requirementIds": [
+        "REQ-WEB"
+      ],
+      "evidenceIds": [
+        "DOC-1"
+      ],
+      "suites": [
+        "browser",
+        "regression"
+      ],
+      "steps": [
+        {
+          "action": "health-page",
+          "input": {
+            "commands": [
+              {
+                "type": "goto",
+                "path": "/"
+              },
+              {
+                "type": "text",
+                "locator": "health-status"
+              }
+            ]
+          },
+          "assertions": [
+            {
+              "path": "text.health-status",
+              "operator": "equals",
+              "expected": "Service healthy"
+            }
+          ]
+        }
+      ],
+      "tags": [
+        "smoke",
+        "web"
+      ],
+      "retrySafe": true
+    },
+    {
+      "id": "TC-DATA-DRAFT",
+      "title": "Reconcile source and warehouse totals",
+      "origin": "ai",
+      "status": "draft",
+      "requirementIds": [
+        "REQ-DATA"
+      ],
+      "evidenceIds": [
+        "DOC-1"
+      ],
+      "suites": [
+        "data"
+      ],
+      "blockedBy": [
+        "Need business reconciliation rule and source evidence"
+      ],
+      "steps": []
+    }
+  ],
+  "data": {
+    "tenant": "reference"
+  },
+  "environments": {
+    "local": {
+      "baseURL": "http://127.0.0.1:4173",
+      "data": {}
+    }
+  },
+  "suites": {
+    "smoke": {
+      "data": {}
+    },
+    "browser": {
+      "data": {}
+    },
+    "data": {
+      "data": {}
+    },
+    "regression": {
+      "data": {}
+    }
+  },
+  "browsers": {
+    "local": {
+      "provider": "local",
+      "browser": "chromium"
+    },
+    "firefox": {
+      "provider": "local",
+      "browser": "firefox"
+    },
+    "webkit": {
+      "provider": "local",
+      "browser": "webkit"
+    }
+  },
+  "execution": {
+    "workers": 2,
+    "retries": 0,
+    "failOnFlaky": true
+  },
+  "reporting": {
+    "formats": [
+      "json",
+      "html",
+      "junit",
+      "markdown"
+    ]
+  }
 }

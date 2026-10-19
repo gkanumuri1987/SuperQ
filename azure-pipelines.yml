@@ -2,13 +2,16 @@ trigger:
   - main
 pool:
   vmImage: ubuntu-latest
+variables:
+  SUPERQ_TEST_BROWSERS: chromium,firefox,webkit
+  SUPERQ_TEST_PROFILES: local,firefox,webkit
 steps:
   - task: NodeTool@0
     inputs:
       versionSpec: '22.x'
   - script: npm ci
     displayName: Install locked dependencies
-  - script: npx playwright install --with-deps chromium
+  - script: npx playwright install --with-deps chromium firefox webkit
     displayName: Install browser runtime
   - script: npm run check
     displayName: Typecheck and validate core, API and browser behavior
@@ -16,3 +19,14 @@ steps:
     displayName: Verify CLI and Cucumber example
   - script: npm audit --audit-level=high
     displayName: Audit dependencies
+  - task: PublishTestResults@2
+    condition: succeededOrFailed()
+    inputs:
+      testResultsFormat: JUnit
+      testResultsFiles: '.superq/runs/**/junit.xml'
+      failTaskOnFailedTests: true
+  - task: PublishPipelineArtifact@1
+    condition: succeededOrFailed()
+    inputs:
+      targetPath: .superq/runs
+      artifact: superq-reports

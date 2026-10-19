@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
-import type { Project, Result, Step, Assertion } from './model.js';
-export type Context = { project: Project; baseURL: string; data: Record<string,unknown> };
+import type { Project, Result, Step, Assertion, Attempt } from './model.js';
+import { createHash, randomUUID } from 'node:crypto';
+import { Execution } from './config.js';
+export type Context = { project: Project; baseURL: string; data: Record<string,unknown>; testId?: string; attempt?: number };
 export type Handler = (input: Record<string,unknown>, context: Context) => Promise<unknown>;
 export class Registry {
   private handlers = new Map<string,Handler>();
@@ -35,26 +37,63 @@ export function check(actual: unknown, a: Assertion) {
     case 'matches': assert.equal(typeof value,'string'); assert.match(value as string,new RegExp(String(a.expected))); break;
   }
 }
-export async function run(p: Project, env: string, suite: string, registry: Registry): Promise<Result[]> {
+export function selectTests(p:Project,suite:string,options:Execution) {
+  if(!p.suites[suite]) throw new Error('Unknown suite');
+  for(const id of options.testIds) if(!p.tests.some(t=>t.id===id&&t.suites.includes(suite))) throw new Error(`Unknown test in suite: ${id}`);
+  const roots=p.tests.filter(t=>t.suites.includes(suite)
+    && (!options.testIds.length||options.testIds.includes(t.id))
+    && (!options.includeTags.length||t.tags.some(tag=>options.includeTags.includes(tag)))
+    && !t.tags.some(tag=>options.excludeTags.includes(tag))
+    && (!options.shard||createHash('sha256').update(t.id).digest().readUInt32BE(0)%options.shard.total===options.shard.index-1));
+  const ids=new Set<string>();
+  function add(id:string) {if(ids.has(id)) return; ids.add(id); p.tests.find(t=>t.id===id)!.dependsOn.forEach(add);}
+  roots.forEach(t=>add(t.id));
+  return {roots:roots.map(t=>t.id),tests:p.tests.filter(t=>ids.has(t.id))};
+}
+export async function run(p: Project, env: string, suite: string, registry: Registry, overrides:Partial<Execution>={}): Promise<Result[]> {
   if(!p.environments[env] || !p.suites[suite]) throw new Error('Unknown environment or suite');
-  const results = new Map<string,Result>(); const selected=p.tests.filter(t=>t.suites.includes(suite));
-  async function execute(id:string): Promise<Result> {
-    if(results.has(id)) return results.get(id)!;
-    const t=p.tests.find(t=>t.id===id)!; const start=Date.now();
-    const finish=(status:Result['status'],reason?:string)=>{ const r={id,status,durationMs:Date.now()-start,...(reason?{reason}:{})}; results.set(id,r); return r; };
+  const options=Execution.parse({...p.execution,...overrides});
+  const {roots,tests}=selectTests(p,suite,options);
+  if(!roots.length) throw new Error('No tests selected; check suite, tags, test IDs or shard');
+  const executionId=randomUUID();
+  const results=new Map<string,Result>(); const pending=new Set(tests.map(t=>t.id));
+  const running=new Map<string,Promise<void>>(); let failures=0;
+  async function execute(id:string):Promise<Result> {
+    const t=tests.find(t=>t.id===id)!; const start=Date.now(); const attempts:Attempt[]=[];
+    const finish=(status:Result['status'],reason?:string):Result=>({id,status,durationMs:Date.now()-start,attempts,flaky:status==='passed'&&attempts.length>1,dependency:!roots.includes(id),...(reason?{reason}:{})});
     if(t.status!=='approved') return finish('skipped','Review required');
     if(t.blockedBy.length) return finish('blocked',`Blockers: ${t.blockedBy.join(', ')}`);
-    for(const d of t.dependsOn) { if((await execute(d)).status!=='passed') return finish('blocked',`Dependency ${d} did not pass`); }
+    for(const d of t.dependsOn) if(results.get(d)?.status!=='passed') return finish('blocked',`Dependency ${d} did not pass`);
     if(!t.steps.length || !t.steps.some(s=>s.assertions.length)) return finish('blocked','Executable steps and explicit assertions required');
-    try {
-      const data=resolveData(p,env,suite,t.data); const context={project:p,baseURL:p.environments[env]!.baseURL,data};
-      for(const raw of t.steps) {
-        const s=interpolate(raw,data) as Step; const action=p.catalog.find(a=>a.id===s.action)!;
-        const response=await registry.get(`${action.kind}:${action.operation}`)(s.input,context);
-        s.assertions.forEach(a=>check(response,a));
+    for(let number=1;number<=1+(t.retrySafe?options.retries:0);number++) {
+      const attemptStart=Date.now(); let step=0; let failureKind:'action'|'assertion'='action';
+      try {
+        const data={...resolveData(p,env,suite,t.data),'superq.testId':id,'superq.attempt':number,'superq.runId':executionId,'superq.environment':env,'superq.suite':suite}; const context={project:p,baseURL:p.environments[env]!.baseURL,data,testId:id,attempt:number};
+        for(const raw of t.steps) {
+          step++; failureKind='action'; const s=interpolate(raw,data) as Step; const action=p.catalog.find(a=>a.id===s.action)!;
+          const response=await registry.get(`${action.kind}:${action.operation}`)(s.input,context);
+          failureKind='assertion'; s.assertions.forEach(a=>check(response,a));
+        }
+        attempts.push({number,status:'passed',durationMs:Date.now()-attemptStart}); return finish('passed');
+      } catch {
+        attempts.push({number,status:'failed',durationMs:Date.now()-attemptStart,failedStep:step,failureKind});
       }
-      return finish('passed');
-    } catch { return finish('failed','Action or assertion failed; inspect locally with sanitized adapter diagnostics.'); }
+    }
+    return finish('failed','Action or assertion failed; raw values omitted to protect secrets.');
   }
-  for(const t of selected) await execute(t.id); return [...results.values()];
+  while(pending.size||running.size) {
+    let progressed=false;
+    for(const id of pending) {
+      if(running.size>=options.workers) break;
+      const t=tests.find(t=>t.id===id)!;
+      if(!t.dependsOn.every(d=>results.has(d))) continue;
+      pending.delete(id); progressed=true;
+      if(options.maxFailures&&failures>=options.maxFailures) {results.set(id,{id,status:'skipped',durationMs:0,reason:'Maximum failures reached',dependency:!roots.includes(id)});continue;}
+      const task=execute(id).then(result=>{results.set(id,result);if(result.status==='failed') failures++;}).finally(()=>{running.delete(id);});
+      running.set(id,task);
+    }
+    if(running.size) await Promise.race(running.values());
+    else if(pending.size&&!progressed) throw new Error('Dependency scheduling stalled; validate project first');
+  }
+  return tests.map(t=>results.get(t.id)!);
 }

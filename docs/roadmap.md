@@ -33,3 +33,10 @@ Appium-based mobile adapters with device-farm orchestration; k6 performance plan
 ## Measures of success
 
 Risk coverage over reviewed acceptance criteria; mutation/seeded-defect detection; escaped defects; useful accepted tests per model dollar; flaky failure rate; mean triage time; catalog reuse and duplicate reduction; source-to-test freshness; blocked-test age; pipeline duration. Define baseline and targets after the pilot, rather than advertising unmeasured industry superiority.
+
+
+## Execution and usability follow-up (implemented)
+
+Named local Chromium/Firefox/WebKit/Chrome/Edge profiles; BrowserStack and LambdaTest capability mapping; explicit cloud selection and per-process concurrency caps; bounded dependency-aware parallel scheduling; tags/test selection; stable root sharding; opt-in safe retries with attempt history and flaky gates; max-failure stopping; runtime fixture identifiers; init/doctor/plan commands; multi-view HTML, JSON, JUnit and Markdown reports; coverage thresholds and CI artifact publication.
+
+Still required for enterprise rollout: live cloud account/tunnel validation; native vendor status publication; distributed session quotas; shard result aggregation; sandboxed workers/cancellation; secrets integration; sanitized screenshots/traces/video; historical trends and Allure/ReportPortal bridges; guided test-authoring/configuration UI; data factories and cleanup; richer assertions (JSON Schema, accessibility, visual comparison, reconciliation tolerances); scheduled runs and ownership/quarantine workflows. Mobile and performance remain later execution domains. These capabilities should be measured against the pilot rather than described as complete.

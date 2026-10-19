@@ -25,7 +25,7 @@ npm run superq -- run examples/project.json local browser
 npm run bdd
 ```
 
-Execution writes `.superq/report.json`. Any failed, blocked or skipped selected test produces a nonzero exit status. `analyze` is informational and reports gaps without running tests. Tests without explicit assertions cannot pass. Each browser journey has an isolated browser context; API calls are stateless. Share business setup through fixtures and test data rather than dependent mutable sessions.
+Execution writes `.superq/report.json` and uniquely named report directories under `.superq/runs/`. Any failed, blocked or skipped selected test produces a nonzero exit status. `analyze` is informational and reports gaps without running tests. Tests without explicit assertions cannot pass. Each browser journey has an isolated browser context; API calls are stateless. Share business setup through fixtures and test data rather than dependent mutable sessions.
 
 ## What is implemented
 
@@ -34,15 +34,28 @@ Execution writes `.superq/report.json`. Any failed, blocked or skipped selected 
 | Traceability | Evidence → requirements → QE/AI tests → shared actions → results |
 | Coverage | Missing QE review, approval, asserted automation and blockers; risk-weighted mapped vs passed coverage |
 | Reuse | Unique action IDs, operation handlers and locator definitions; identical step sequences flagged as duplicate candidates |
-| Execution | Playwright web/API, SELECT adapters for PostgreSQL/Snowflake, bounded MongoDB find, custom TypeScript handlers |
+| Execution | Selectable local/cloud Playwright browser profiles, web/API, SELECT adapters for PostgreSQL/Snowflake, bounded MongoDB find, custom TypeScript handlers |
 | Data | Global → environment → suite → test overrides; `${key}` interpolation preserves exact-value types |
-| Dependencies | Cycles rejected; prerequisite failures block descendants; explicit blockers recorded |
+| Dependencies | Cycles rejected; bounded parallel workers; prerequisite failures block descendants; explicit blockers recorded |
 | Knowledge | Explicit tracked-file snapshots at committed revisions, hashes and change reports; no source writes |
 | AI controls | Provider interface, evidence reference validation, bounded reservations, in-process cache, no retry loops |
 | Healing | Candidate eligibility proposal only; human review always required |
 | BDD | Runnable Cucumber scenario reuses the same catalog and execution engine |
 | Trackers | Programmatic read-only Jira Cloud issue and Azure DevOps work-item connectors |
 | CI | GitHub Actions and Azure Pipelines examples |
+
+## Browser matrix, parallel runs and report views
+
+```sh
+npx playwright install chromium firefox webkit
+npm run superq -- doctor examples/project.json
+npm run superq -- plan examples/project.json local regression --profiles local,firefox,webkit
+npm run superq -- run examples/project.json local regression --profiles local,firefox,webkit --workers 2
+```
+
+Start the reference app before `run`. Choose Chromium, Firefox, WebKit or installed Chrome/Edge; configure BrowserStack and LambdaTest profiles using environment credentials. Reports offer interactive summary, test, coverage, blocker and browser views, plus JSON, JUnit and Markdown. Tags, stable CI sharding, safe retries and coverage gates are configurable. See the [execution guide](docs/execution-and-reporting.md) for copyable configuration and limits.
+
+`init <project.json>` creates a starter; `doctor` checks setup; `plan` previews selection without paid sessions.
 
 ## Configure your application
 
