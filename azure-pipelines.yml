@@ -1,0 +1,18 @@
+trigger:
+  - main
+pool:
+  vmImage: ubuntu-latest
+steps:
+  - task: NodeTool@0
+    inputs:
+      versionSpec: '22.x'
+  - script: npm ci
+    displayName: Install locked dependencies
+  - script: npx playwright install --with-deps chromium
+    displayName: Install browser runtime
+  - script: npm run check
+    displayName: Typecheck and validate core, API and browser behavior
+  - script: npm run verify-example
+    displayName: Verify CLI and Cucumber example
+  - script: npm audit --audit-level=high
+    displayName: Audit dependencies

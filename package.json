@@ -1,0 +1,35 @@
+{
+  "name": "superq",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Evidence-driven quality engineering automation",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "tsx --test tests/*.test.ts",
+    "check": "npm run build && npm test",
+    "superq": "tsx src/cli.ts",
+    "demo": "tsx src/cli.ts analyze examples/project.json",
+    "bdd": "npm run build && cucumber-js --import examples/bdd/steps.mjs examples/bdd/health.feature",
+    "reference-app": "tsx examples/server.ts",
+    "verify-example": "tsx examples/verify.ts"
+  },
+  "dependencies": {
+    "@playwright/test": "^1.56.0",
+    "mongodb": "^6.20.0",
+    "pg": "^8.16.0",
+    "snowflake-sdk": "^3.4.0",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@cucumber/cucumber": "^12.9.0",
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.15.0",
+    "@types/snowflake-sdk": "^1.6.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  }
+}
