@@ -1,3 +1,4 @@
+import Environments from "./Environments";
 import Automate from "./Automate";
 import CoverageLab from "./CoverageLab";
 import PlanningScreen from "./Planning";
@@ -97,6 +98,7 @@ const navigation = [
     label: "Keep it reliable",
     items: [
       { id: "maintenance", label: "Change inbox", icon: GitCompareArrows },
+      { id: "environments", label: "Environments & accounts", icon: Settings2 },
       { id: "connections", label: "Connections & setup", icon: Link2 },
     ],
   },
@@ -475,6 +477,7 @@ export default function App() {
                         "tests",
                         "runs",
                         "maintenance",
+                        "environments",
                         "connections",
                       ].includes(i.id),
                     ),
@@ -587,6 +590,14 @@ export default function App() {
                   { design, baseDesign },
                   "Coverage design saved",
                 )
+              }
+            />
+          )}
+          {page === "environments" && (
+            <Environments
+              project={p}
+              save={(value) =>
+                mutate("environments", value, "Environment setup saved")
               }
             />
           )}
@@ -2723,6 +2734,33 @@ function TestDialog({
                     ))}
                   </select>
                 </Field>
+                {Object.keys(project.roles ?? {}).length > 0 && (
+                  <Field label="Application role">
+                    <select
+                      value={draft.anonymous ? "__anon__" : (draft.role ?? "")}
+                      onChange={(e) =>
+                        update(
+                          e.target.value === "__anon__"
+                            ? {
+                                anonymous: true,
+                                role: undefined,
+                                user: undefined,
+                              }
+                            : {
+                                anonymous: undefined,
+                                role: e.target.value || undefined,
+                              },
+                        )
+                      }
+                    >
+                      <option value="">Use environment default</option>
+                      <option value="__anon__">Anonymous (no login)</option>
+                      {Object.keys(project.roles ?? {}).map((r) => (
+                        <option key={r}>{r}</option>
+                      ))}
+                    </select>
+                  </Field>
+                )}
                 <Field
                   label="Tags"
                   hint="Comma-separated, for example smoke, checkout"
@@ -3378,6 +3416,7 @@ function RunDialog({
   const [environment, setEnvironment] = useState(
       Object.keys(data.project.environments)[0],
     ),
+    [account, setAccount] = useState(""),
     [suite, setSuite] = useState(Object.keys(data.project.suites)[0]),
     [profile, setProfile] = useState(Object.keys(data.project.browsers)[0]),
     [workers, setWorkers] = useState(
@@ -3408,6 +3447,7 @@ function RunDialog({
           e.preventDefault();
           void onRun({
             environment,
+            ...(account ? { user: account } : {}),
             suite,
             profile,
             workers,
@@ -3431,13 +3471,36 @@ function RunDialog({
             <Field label="Environment">
               <select
                 value={environment}
-                onChange={(e) => setEnvironment(e.target.value)}
+                onChange={(e) => {
+                  setEnvironment(e.target.value);
+                  setAccount("");
+                }}
               >
                 {Object.keys(data.project.environments).map((s) => (
                   <option key={s}>{s}</option>
                 ))}
               </select>
             </Field>
+            {Object.keys(data.project.environments[environment!]?.users ?? {})
+              .length > 0 && (
+              <Field label="Test account">
+                <select
+                  value={account}
+                  onChange={(e) => setAccount(e.target.value)}
+                >
+                  <option value="">
+                    Use each test's role and environment default
+                  </option>
+                  {Object.entries(
+                    data.project.environments[environment!]?.users ?? {},
+                  ).map(([id, u]) => (
+                    <option key={id} value={id}>
+                      {id} ({u.role})
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
             <Field label="Suite">
               <select
                 value={suite}

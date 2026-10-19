@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import type { Project, Result, Step, Assertion, Attempt } from './model.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { Execution } from './config.js';
-export type Context = { project: Project; baseURL: string; data: Record<string,unknown>; testId?: string; attempt?: number; signal?:AbortSignal };
+export type Context = { project: Project; baseURL: string; apiURL?: string; urls?: Record<string,string>; account?: {id:string;role:string;username?:string;password?:string;token?:string}; login?: NonNullable<Project["environments"][string]["login"]>; data: Record<string,unknown>; testId?: string; attempt?: number; signal?:AbortSignal };
 export type Handler = (input: Record<string,unknown>, context: Context) => Promise<unknown>;
 export class Registry {
   private handlers = new Map<string,Handler>();
@@ -12,7 +12,20 @@ export class Registry {
 export function resolveData(p: Project, env: string, suite: string, testData: Record<string,unknown>) {
   if(!Object.hasOwn(p.environments,env) || !Object.hasOwn(p.suites,suite)) throw new Error('Unknown environment or suite');
   // Deliberately shallow: an object override replaces the entire object.
-  return {...p.data,...p.environments[env]!.data,...p.suites[suite]!.data,...testData};
+  return {...p.data,...p.environments[env]!.data,...p.suites[suite]!.data,...p.environments[env]!.suiteData?.[suite],...testData};
+}
+export function resolveAccount(p:Project,envName:string,test:Project['tests'][number],requested?:string,secrets:Record<string,string|undefined>=process.env) {
+  const env=p.environments[envName];if(!env)throw new Error('Unknown environment');
+  if(test.anonymous)return undefined;
+  const users=env.users??{};let id=requested??test.user;
+  if(!id&&test.role){const matches=Object.entries(users).filter(([,u])=>u.role===test.role);if(env.defaultUser&&users[env.defaultUser]?.role===test.role)id=env.defaultUser;else if(matches.length===1)id=matches[0]![0];else throw new Error(`Select one account for required role ${test.role} in ${envName}`);}
+  id??=env.defaultUser;if(!id)return undefined;
+  const user=users[id];if(!user)throw new Error(`Account ${id} is unavailable in ${envName}`);
+  if(test.role&&user.role!==test.role)throw new Error(`Selected account does not have required role ${test.role}`);
+  const read=(name?:string)=>{if(!name)return undefined;const value=secrets[name];if(!value)throw new Error(`Missing secret environment variable ${name}`);return value;};
+  const password=read(user.passwordEnv),token=read(user.tokenEnv);
+  if(env.login&&test.steps.some(s=>p.catalog.find(a=>a.id===s.action)?.kind==='web')&&(!user.username||!password))throw new Error(`Browser login needs a username and password secret for account ${id}`);
+  return {id,role:user.role,username:user.username,password,token};
 }
 export function interpolate(value: unknown, data: Record<string,unknown>): unknown {
   if(typeof value==='string') {
@@ -70,11 +83,13 @@ export async function run(p: Project, env: string, suite: string, registry: Regi
     if(t.blockedBy.length) return finish('blocked',`Blockers: ${t.blockedBy.join(', ')}`);
     for(const d of t.dependsOn) if(results.get(d)?.status!=='passed') return finish('blocked',`Dependency ${d} did not pass`);
     if(!t.steps.length || !t.steps.some(s=>s.assertions.length)) return finish('blocked','Executable steps and explicit assertions required');
+    let account:ReturnType<typeof resolveAccount>;
+    try{account=resolveAccount(p,env,t,options.user);}catch(error){return finish('blocked',error instanceof Error?error.message:'Account configuration is incomplete');}
     for(let number=1;number<=1+(t.retrySafe?options.retries:0);number++) {
       const attemptStart=Date.now(); let step=0; let failureKind:'action'|'assertion'|'timeout'='action';
       let didTimeout=false;
       try {
-        const data={...structuredClone(resolveData(p,env,suite,t.data)),'superq.testId':id,'superq.attempt':number,'superq.runId':executionId,'superq.environment':env,'superq.suite':suite}; const context={project:p,baseURL:p.environments[env]!.baseURL,data,testId:id,attempt:number};
+        const data={...structuredClone({...resolveData(p,env,suite,t.data),...p.environments[env]!.testData?.[id]}),...(account?{'user.id':account.id,'user.role':account.role,'user.username':account.username,'user.password':account.password,'user.token':account.token}:{}),'url.web':p.environments[env]!.baseURL,'url.api':p.environments[env]!.apiURL??p.environments[env]!.baseURL,...Object.fromEntries(Object.entries(p.environments[env]!.urls??{}).map(([k,v])=>[`url.${k}`,v])),'superq.testId':id,'superq.attempt':number,'superq.runId':executionId,'superq.environment':env,'superq.suite':suite}; const context={project:p,baseURL:p.environments[env]!.baseURL,apiURL:p.environments[env]!.apiURL,urls:p.environments[env]!.urls,account,login:p.environments[env]!.login,data,testId:id,attempt:number};
         for(const raw of t.steps) {
           step++; failureKind='action'; const s={...raw,input:interpolate(raw.input,data),assertions:interpolate(raw.assertions,data)} as Step; const action=p.catalog.find(a=>a.id===s.action)!;
           const controller=new AbortController();let timer:ReturnType<typeof setTimeout>|undefined;

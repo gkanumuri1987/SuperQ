@@ -7,7 +7,7 @@ export function canonical(value:unknown):string {
   if(value&&typeof value==='object')return `{${Object.entries(value).filter(([,v])=>v!==undefined).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>`${JSON.stringify(k)}:${canonical(v)}`).join(',')}}`;
   return JSON.stringify(value)??'null';
 }
-export function projectFingerprint(p:Project){const {execution:_,reporting:__,...content}=p;return createHash('sha256').update(canonical(content)).digest('hex');}
+export function projectFingerprint(p:Project){const {execution:_,reporting:__,...content}=p;return createHash('sha256').update(canonical({...content,...(_.user?{executionIdentity:{user:_.user}}:{})})).digest('hex');}
 export function automationIdentity(repo=fileURLToPath(new URL('..',import.meta.url))) {
   try{const git=(args:string[])=>execFileSync('git',['-C',repo,...args],{encoding:'utf8',stdio:['ignore','pipe','ignore']}).trim();return {automationRevision:git(['rev-parse','HEAD']),automationDirty:git(['status','--porcelain']).length>0};}
   catch{return {automationRevision:null,automationDirty:true};}

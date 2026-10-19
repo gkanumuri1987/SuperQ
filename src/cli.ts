@@ -33,6 +33,7 @@ const help=`SuperQ — evidence-driven automation
   diff <before.json> <after.json>          Compare source knowledge
 
 Run/plan options:
+  --user qa-admin                         Select an account in the chosen environment
   --profiles local,firefox                 Explicit named profiles (default: local)
   --workers 4 --retries 1 --max-failures 3  Bounded workers; only retrySafe tests retry
   --tags smoke,critical --exclude-tags slow
@@ -45,7 +46,7 @@ Reports include summary, tests, coverage, blockers and browser views.
 Cloud profiles require credentials and may incur provider charges when selected.
 `;
 async function main() {
-  const {positionals,values}=parseArgs({allowPositionals:true,options:{help:{type:'boolean'},model:{type:'string'},'ollama-url':{type:'string'},reviewer:{type:'string'},'application-revision':{type:'string'},'artifact-digest':{type:'string'},profiles:{type:'string'},workers:{type:'string'},retries:{type:'string'},'max-failures':{type:'string'},tags:{type:'string'},'exclude-tags':{type:'string'},tests:{type:'string'},shard:{type:'string'},formats:{type:'string'},output:{type:'string'},'minimum-automation':{type:'string'},'minimum-proven':{type:'string'},'critical-gaps':{type:'boolean'}}});
+  const {positionals,values}=parseArgs({allowPositionals:true,options:{help:{type:'boolean'},model:{type:'string'},'ollama-url':{type:'string'},reviewer:{type:'string'},user:{type:'string'},'application-revision':{type:'string'},'artifact-digest':{type:'string'},profiles:{type:'string'},workers:{type:'string'},retries:{type:'string'},'max-failures':{type:'string'},tags:{type:'string'},'exclude-tags':{type:'string'},tests:{type:'string'},shard:{type:'string'},formats:{type:'string'},output:{type:'string'},'minimum-automation':{type:'string'},'minimum-proven':{type:'string'},'critical-gaps':{type:'boolean'}}});
   const [command,file,...args]=positionals;
   if(values.help||!command) {console.log(help);return;}
   if(command==='design'&&file){console.log(JSON.stringify(designPairwise(JSON.parse(await readFile(resolve(file),'utf8'))),null,2));return;}
@@ -78,6 +79,7 @@ async function main() {
   if(values.shard){if(!/^\d+\/\d+$/.test(values.shard)) throw new Error('Shard format must be index/total');const [index,total]=values.shard.split('/').map(Number);shard={index:index!,total:total!};}
   p.execution=Execution.parse({...p.execution,...(values.workers!==undefined?{workers:numeric(values.workers)}:{}),...(values.retries!==undefined?{retries:numeric(values.retries)}:{}),...(values['max-failures']!==undefined?{maxFailures:numeric(values['max-failures'])}:{}),...(values.tags!==undefined?{includeTags:list(values.tags)}:{}),...(values['exclude-tags']!==undefined?{excludeTags:list(values['exclude-tags'])}:{}),...(values.tests!==undefined?{testIds:list(values.tests)}:{}),shard});
   p.reporting=Reporting.parse({...p.reporting,...(values.formats?{formats:list(values.formats)}:{}),...(values['minimum-automation']!==undefined?{minimumAutomation:numeric(values['minimum-automation'])}:{}),...(values['minimum-proven']!==undefined?{minimumProven:numeric(values['minimum-proven'])}:{}),...(values['critical-gaps']?{failOnCriticalGaps:true}:{})});
+  if(values.user)p.execution.user=values.user;
   const [env,suite]=args;if(!env||!suite||!Object.hasOwn(p.environments,env)) throw new Error('Known environment and suite required');
   // Never implicitly select a configured cloud provider.
   const profiles=[...new Set(list(values.profiles??'local'))];if(!profiles.length) throw new Error('Select at least one profile');

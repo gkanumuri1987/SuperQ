@@ -89,3 +89,7 @@ Mutations require a per-process request token, reject cross-site requests, valid
 Repository/tracker/documentation URLs in setup are labeled references or configured-but-unverified. They are not falsely presented as authenticated connections. Monitoring needs a local checkout and exact source path allowlist. The startup sample is visibly separate from live application evidence.
 
 Current authoring is strongest for API and browser journeys. Database adapters are accessible through project definitions, and configurable cloud profiles are imported through project configuration. Native database/query designers, screenshot/visual-regression comparison, drag-and-drop ordering, integrated recorder, tracker synchronization and role-based team workflows remain next UX increments. Font delivery uses Google Fonts with system fallbacks; the tool remains usable without them.
+
+## Environment and account setup
+
+Environments & accounts is available in the normal navigation for one-time application configuration. It provides role definitions, environment-scoped accounts/defaults, separate web/API URLs, secret-name references, typed environment data and optional labeled form login. Automate and the full run dialog send an explicit account alias when selected; tests can declare role requirements or anonymous behavior. See [the environment guide](environments-and-accounts.md) for resolution rules and limits.

@@ -60,3 +60,7 @@ See [the primary-source landscape review](competitive-review.md) for the current
 ## Product priority: easy functional automation
 
 The default Automate screen and simplified navigation now put common functional checks ahead of specialist configuration. Business expectations and application setup are prerequisites; QE authors do not need to choose catalog action IDs, locator IDs, workers or browser capabilities for the shortcut. Subsequent work should prioritize recorder-assisted capture and direct manual-case-to-working-test flow, with measured reviewer effort and correction rates, before adding more top-level tools. See [the workflow](easy-automation.md).
+
+## Environment-scoped application users and data (implemented)
+
+Studio setup now manages application roles, environment accounts/defaults, separate web/API URLs, environment data and form login. Execution resolves role requirements, selected accounts and process secret references; bearer headers, login contexts, typed data and locator substitutions are environment-aware. Per-suite/per-case environment overlays and named HTTP service URLs are available in project configuration. This is not SuperQ platform RBAC or SSO/MFA provisioning. Database connection secrets remain on the existing process-level adapter configuration.

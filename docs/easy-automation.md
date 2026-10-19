@@ -1,6 +1,6 @@
 # Functional automation should take little attention
 
-The default Studio landing page is **Automate**. Normal navigation shows Automate, Test library, Runs & reports, Change inbox and Connections & setup. More tools reveals the specialist screens; direct links remain valid. The product goal is time to a useful working check, not the number of tools displayed.
+The default Studio landing page is **Automate**. Normal navigation shows Automate, Test library, Runs & reports, Change inbox, Environments & accounts and Connections & setup. More tools reveals the specialist screens; direct links remain valid. The product goal is time to a useful working check, not the number of tools displayed.
 
 For an existing configured application:
 

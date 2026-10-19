@@ -127,3 +127,7 @@ See [architecture](docs/architecture.md), [delivery plan](docs/roadmap.md) and [
 ### Coverage design and competitive direction
 
 [Coverage Lab](docs/coverage-lab.md) builds reproducible constrained pairwise data in Studio or with `npx tsx src/cli.ts design examples/test-design.json`. No model call is required; data-design coverage remains separate from application proof. The [competitive review and delivery plan](docs/competitive-review.md) compares documented capabilities across 17 tool families and identifies measurable next milestones.
+
+### Environment setup
+
+Studio → **Environments & accounts** configures application roles, accounts, web/API URLs and typed test data per environment. Functional tests can require a role and choose an environment account at execution. Password/token fields hold process secret names. See [configuration, precedence and authentication](docs/environments-and-accounts.md).

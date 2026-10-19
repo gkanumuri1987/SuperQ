@@ -22,6 +22,7 @@ import {
   sampleApp,
 } from "./workspace/sample.js";
 import {
+  canonical,
   reviewFingerprint,
   automationIdentity,
   projectFingerprint,
@@ -402,7 +403,24 @@ export async function startWorkspace(
           });
           return;
         }
-        if (path === "/api/quick-test") {
+        if (path === "/api/environments") {
+          const current = {
+            roles: state.project.roles ?? {},
+            environments: state.project.environments,
+          };
+          if (canonical(data.base) !== canonical(current)) {
+            json(res, 409, {
+              error: "Environment setup changed. Reload before saving.",
+            });
+            return;
+          }
+          const project = validateProject({
+            ...state.project,
+            roles: data.roles,
+            environments: data.environments,
+          });
+          change("Environments and test accounts updated", project);
+        } else if (path === "/api/quick-test") {
           change(
             "Functional test created",
             createQuickTest(state.project, data.test),
@@ -589,6 +607,7 @@ export async function startWorkspace(
           const input = z
             .object({
               environment: z.string(),
+              user: z.string().min(1).optional(),
               suite: z.string(),
               profile: z.string(),
               workers: z.number().int().min(1).max(16),
@@ -639,6 +658,7 @@ export async function startWorkspace(
             );
           const project = validateProject(structuredClone(state.project));
           project.execution.workers = input.workers;
+          project.execution.user = input.user;
           project.execution.testIds = input.testIds;
           if (input.validateDrafts)
             for (const test of project.tests)

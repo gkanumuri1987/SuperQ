@@ -26,3 +26,7 @@ Ollama is validated with an injected fake transport, not live model inference. P
 Studio validation adds the local API mutation token/revision checks, exact source-file impact/deletion detection, source repository write isolation, safe maintenance staging, preservation of later review attestations, stale proposal rejection, draft validation without approval, stale-run proof rejection, visual test creation/editing, human review, focused real API execution and responsive mobile navigation. Desktop overview, change review, builder and mobile screens were visually inspected.
 
 The Studio starts with a labeled sample and no live remote connections. Tracker synchronization and full visual-regression analysis are not represented as implemented. Local source monitoring operates only while the server runs.
+
+## Environment-scoped accounts and data
+
+The full local suite passes 74 tests. New coverage exercises role selection/ambiguity, missing secrets, anonymous behavior, environment separation, typed suite/case overrides, distinct API URLs, bearer injection and explicit header override, cross-service credential boundaries, browser form login with a real local session, locator data substitution, run-identity invalidation, and the rendered Studio setup/selection workflow. Production build and strict typechecks pass; desktop/mobile layouts were visually inspected. These checks use controlled local fixtures, not live QA/UAT systems, SSO/MFA or a production authorization audit.

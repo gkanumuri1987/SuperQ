@@ -362,3 +362,90 @@ test("simple start creates and tries API and screen checks without catalog or JS
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("environment setup configures scoped accounts, typed data and URLs; simple automation sends the selected account", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "superq-env-ui-"));
+  const app = await startWorkspace({ port: 0, file: join(dir, "state.json") });
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    await page.goto(`${app.url}/#environments`);
+    await page
+      .getByRole("heading", { name: "Environments & test accounts" })
+      .waitFor();
+    await page.getByText("Application roles (0)", { exact: true }).click();
+    await page.getByLabel("New role name").fill("customer");
+    await page.getByRole("button", { name: "Add role", exact: true }).click();
+    await page.getByLabel("New environment name").fill("qa");
+    await page
+      .getByRole("button", { name: "Add environment", exact: true })
+      .click();
+    await page
+      .getByLabel("Web application URL", { exact: true })
+      .fill("https://qa.example.invalid/");
+    await page
+      .getByLabel("API base URL (optional)")
+      .fill(`${app.url}/sample-app/`);
+    await page.getByLabel("New account name").fill("buyer");
+    await page
+      .getByRole("button", { name: "Add account", exact: true })
+      .click();
+    await page.getByLabel("Username for buyer").fill("qa-buyer");
+    await page.getByLabel("Default account for qa").selectOption("buyer");
+    await page
+      .getByRole("button", { name: "Add test data", exact: true })
+      .click();
+    await page.getByLabel("Data name 1").fill("available");
+    await page.getByLabel("Data value 1").fill("true");
+    await page.getByRole("button", { name: "Save environment setup" }).click();
+    await page.getByText("Environment setup saved", { exact: true }).waitFor();
+    let state = await (await fetch(`${app.url}/api/workspace`)).json();
+    assert.equal(state.project.environments.qa.data.available, true);
+    assert.equal(state.project.environments.qa.users.buyer.role, "customer");
+    assert.equal(
+      state.project.environments.qa.apiURL,
+      `${app.url}/sample-app/`,
+    );
+    // A second edit must survive schema normalization and key ordering.
+    await page.getByLabel("Username for buyer").fill("qa-buyer-updated");
+    const saved = page.waitForResponse((r) =>
+      r.url().endsWith("/api/environments"),
+    );
+    await page.getByRole("button", { name: "Save environment setup" }).click();
+    assert.equal((await saved).status(), 200);
+    await page.getByRole("button", { name: "Automate", exact: true }).click();
+    await page
+      .getByLabel("Functional expectation")
+      .selectOption(JSON.stringify(["REQ-104", "AC-5"]));
+    await page
+      .getByLabel("Application role", { exact: true })
+      .selectOption("customer");
+    await page.getByRole("button", { name: "Through an API" }).click();
+    await page.getByLabel("API path", { exact: true }).fill("api/inventory");
+    await page.getByLabel("Response field", { exact: true }).fill("available");
+    await page
+      .getByLabel("Expected value", { exact: true })
+      .fill("${available}");
+    await page.getByRole("button", { name: "Create functional test" }).click();
+    await page
+      .getByRole("heading", { name: "Your test is ready to try." })
+      .waitFor();
+    await page.getByLabel("Application environment").selectOption("qa");
+    await page
+      .getByLabel("Test account", { exact: true })
+      .selectOption("buyer");
+    const request = page.waitForRequest((r) => r.url().endsWith("/api/runs"));
+    await page
+      .getByRole("button", { name: "Try this test", exact: true })
+      .click();
+    assert.equal((await request).postDataJSON().user, "buyer");
+    await page.getByText("The check passed", { exact: true }).waitFor();
+    state = await (await fetch(`${app.url}/api/workspace`)).json();
+    assert.equal(state.project.tests.at(-1).role, "customer");
+    assert.equal(state.runs[0].report.environment, "qa");
+  } finally {
+    await browser.close();
+    await app.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});

@@ -3,6 +3,8 @@ import { validateProject, type Project } from "./model.js";
 const common = {
   id: z.string().regex(/^SQ-[a-zA-Z0-9-]+$/),
   title: z.string().trim().min(1),
+  role: z.string().min(1).optional(),
+  anonymous: z.boolean().optional(),
   requirementId: z.string().min(1),
   criterionId: z.string().min(1),
   path: z.string().trim().min(1),
@@ -176,6 +178,8 @@ export function createQuickTest(project: Project, input: unknown) {
     id: i.id,
     title: i.title,
     status: "draft",
+    ...(i.role ? { role: i.role } : {}),
+    ...(i.anonymous ? { anonymous: true } : {}),
     origin: "qe",
     requirementIds: [requirement.id],
     covers: { [requirement.id]: [i.criterionId] },

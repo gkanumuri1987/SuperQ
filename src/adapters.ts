@@ -3,7 +3,7 @@ import { Client } from 'pg';
 import { MongoClient } from 'mongodb';
 import snowflake from 'snowflake-sdk';
 import { z } from 'zod';
-import { Registry } from './runner.js';
+import { Registry, interpolate } from './runner.js';
 import { BrowserProfile } from './config.js';
 import { openBrowser } from './browser.js';
 
@@ -19,11 +19,12 @@ export function createAdapters(rawProfile:unknown={provider:'local'}, connector:
   const profile=BrowserProfile.parse(rawProfile);
   const registry = new Registry(); const browsers=new Set<Browser>();
   registry.register('api:request',async(input,ctx)=>{
-    const i=z.object({path:z.string(),method:z.enum(['GET','POST','PUT','PATCH','DELETE','HEAD']).default('GET'),body:z.unknown().optional(),headers:z.record(z.string(),z.string()).optional()}).strict().parse(input);
-    const url=new URL(i.path,ctx.baseURL); if(url.origin!==new URL(ctx.baseURL).origin) throw new Error('Cross-origin API request denied');
-    const api=await request.newContext({baseURL:ctx.baseURL,timeout:30_000,ignoreHTTPSErrors:false});
+    const i=z.object({service:z.string().optional(),path:z.string(),method:z.enum(['GET','POST','PUT','PATCH','DELETE','HEAD']).default('GET'),body:z.unknown().optional(),headers:z.record(z.string(),z.string()).optional()}).strict().parse(input);
+    const base=i.service?ctx.urls?.[i.service]:ctx.apiURL??ctx.baseURL;if(!base)throw new Error('Unknown environment service');
+    const url=new URL(i.path,base); if(url.origin!==new URL(base).origin) throw new Error('Cross-origin API request denied');
+    const api=await request.newContext({baseURL:base,timeout:30_000,ignoreHTTPSErrors:false});
     const abort=()=>{void api.dispose().catch(()=>{});};ctx.signal?.addEventListener('abort',abort,{once:true});if(ctx.signal?.aborted)abort();
-    try { const r=await api.fetch(url.href,{method:i.method,data:i.body,headers:i.headers,maxRedirects:0}); const text=await r.text(); let body:unknown=text; try{body=JSON.parse(text);}catch{} return {status:r.status(),body}; }
+    try { const r=await api.fetch(url.href,{method:i.method,data:i.body,headers:{...(ctx.account?.token&&url.origin===new URL(ctx.apiURL??ctx.baseURL).origin?{authorization:`Bearer ${ctx.account.token}`} : {}),...Object.fromEntries(Object.entries(i.headers??{}).map(([k,v])=>[k.toLowerCase(),v]))},maxRedirects:0}); const text=await r.text(); let body:unknown=text; try{body=JSON.parse(text);}catch{} return {status:r.status(),body}; }
     finally {ctx.signal?.removeEventListener('abort',abort); await api.dispose(); }
   });
   registry.register('web:journey',async(input,ctx)=>{
@@ -46,9 +47,19 @@ export function createAdapters(rawProfile:unknown={provider:'local'}, connector:
       const origin=new URL(ctx.baseURL).origin;
       await context.route('**/*',async route=> { const url=new URL(route.request().url()); if(url.origin===origin) await route.continue(); else await route.abort(); });
       const page=await context.newPage(); page.setDefaultTimeout(15_000); const text:Record<string,string>={};
+      if(ctx.account&&ctx.login){
+        if(!ctx.account.username||!ctx.account.password)throw new Error('Login requires configured username and password secret');
+        const loginURL=new URL(ctx.login.path,ctx.baseURL),successURL=new URL(ctx.login.successPath,ctx.baseURL);
+        if(loginURL.origin!==origin||successURL.origin!==origin)throw new Error('Cross-origin login denied');
+        await page.goto(loginURL.href);
+        await page.getByLabel(ctx.login.usernameLabel,{exact:true}).fill(ctx.account.username);
+        await page.getByLabel(ctx.login.passwordLabel,{exact:true}).fill(ctx.account.password);
+        await page.getByRole('button',{name:ctx.login.submitButton,exact:true}).click();
+        await expect(page).toHaveURL(successURL.href);
+      }
       for(const c of i.commands) {
         if(c.type==='goto') { const url=new URL(c.path,ctx.baseURL); if(url.origin!==origin) throw new Error('Cross-origin navigation denied'); await page.goto(url.href); continue; }
-        const def=ctx.project.locators[c.locator]; if(!def) throw new Error(`Unknown locator ${c.locator}`);
+        const def=interpolate(ctx.project.locators[c.locator],ctx.data) as typeof ctx.project.locators[string]; if(!def) throw new Error(`Unknown locator ${c.locator}`);
         const locator=def.strategy==='text'?page.getByText(def.value,{exact:true}):def.strategy==='testId'?page.getByTestId(def.value):def.strategy==='label'?page.getByLabel(def.value,{exact:true}):page.getByRole(def.value as Parameters<typeof page.getByRole>[0],{name:def.name,exact:true});
         if(c.type==='click') await locator.click();
         else if(c.type==='fill') await locator.fill(c.value);

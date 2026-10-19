@@ -23,6 +23,8 @@ export default function Automate({
   addExpectation,
 }: Props) {
   const [choice, setChoice] = useState(""),
+    [role, setRole] = useState(""),
+    [account, setAccount] = useState(""),
     [kind, setKind] = useState<"web" | "api">("web"),
     [path, setPath] = useState(""),
     [button, setButton] = useState(""),
@@ -96,6 +98,11 @@ export default function Automate({
         criterionId,
         path,
         kind,
+        ...(role === "__anonymous__"
+          ? { anonymous: true }
+          : role
+            ? { role }
+            : {}),
         ...(kind === "web"
           ? { button, fields, expectation: { kind: where, text, target } }
           : {
@@ -159,6 +166,22 @@ export default function Automate({
                 Add an expectation
               </button>
             </p>
+          )}
+          {Object.keys(p.roles ?? {}).length > 0 && (
+            <label>
+              Application role
+              <select
+                aria-label="Application role"
+                value={role}
+                onChange={(e) => setRole(e.target.value)}
+              >
+                <option value="">Use environment default</option>
+                <option value="__anonymous__">Anonymous (no login)</option>
+                {Object.keys(p.roles ?? {}).map((r) => (
+                  <option key={r}>{r}</option>
+                ))}
+              </select>
+            </label>
           )}
           <h2>
             <span>2</span> How do you want to check it?
@@ -358,13 +381,39 @@ export default function Automate({
             Application environment
             <select
               value={environment}
-              onChange={(e) => setEnvironment(e.target.value)}
+              onChange={(e) => {
+                setEnvironment(e.target.value);
+                setAccount("");
+              }}
             >
               {Object.keys(p.environments).map((e) => (
                 <option key={e}>{e}</option>
               ))}
             </select>
           </label>
+          {!p.tests.find((t) => t.id === created)?.anonymous &&
+            Object.keys(p.environments[environment]?.users ?? {}).length >
+              0 && (
+              <label>
+                Test account
+                <select
+                  aria-label="Test account"
+                  value={account}
+                  onChange={(e) => setAccount(e.target.value)}
+                >
+                  <option value="">
+                    Choose automatically from role/default
+                  </option>
+                  {Object.entries(p.environments[environment]?.users ?? {})
+                    .filter(([, u]) => !role || u.role === role)
+                    .map(([id, u]) => (
+                      <option key={id} value={id}>
+                        {id} ({u.role})
+                      </option>
+                    ))}
+                </select>
+              </label>
+            )}
           <p>
             Runs with{" "}
             {local
@@ -384,6 +433,7 @@ export default function Automate({
                 try {
                   await run({
                     environment,
+                    ...(account ? { user: account } : {}),
                     suite: p.tests.find((t) => t.id === created)?.suites[0],
                     profile: local?.[0],
                     workers: 1,

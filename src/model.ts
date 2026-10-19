@@ -1,3 +1,4 @@
+import { Environment } from './environment.js';
 import { z } from 'zod';
 import { BrowserProfile, Execution, Reporting } from './config.js';
 import { ReleasePolicy, Revision } from './release-policy.js';
@@ -10,17 +11,18 @@ export const Assertion = z.object({ path: z.string(), operator: z.enum(['equals'
 export const Step = z.object({ save: z.record(z.string(), z.string().min(1)).default({}), action: id, input: z.record(z.string(), z.unknown()).default({}), assertions: z.array(Assertion).default([]) }).strict();
 export const Project = z.object({
   name: id,
+  roles: z.record(z.string(),z.object({description:z.string()}).strict()).optional(),
   evidence: z.array(Evidence).default([]),
   requirements: z.array(z.object({ id, title: id, risk: z.enum(['critical','high','medium','low']), criteria:z.array(z.object({id,title:id}).strict()).default([]), evidenceIds: z.array(id).min(1) }).strict()),
   catalog: z.array(z.object({ id, kind: z.enum(['api','web','postgres','mongo','snowflake','custom']), operation: id, description: id }).strict()),
   locators: z.record(z.string(), z.object({ strategy: z.enum(['role','label','testId','text']), value: id, name: z.string().optional() }).strict()).default({}),
-  tests: z.array(z.object({ id, title: id, origin: z.enum(['qe','ai']), status: z.enum(['draft','approved']), review:z.object({reviewer:id,at:z.iso.datetime(),digest:z.string().regex(/^[a-f0-9]{64}$/).optional()}).strict().optional(), covers:z.record(z.string(),z.array(id)).default({}), requirementIds: z.array(id).min(1), evidenceIds: z.array(id).min(1), suites: z.array(id).min(1), tags: z.array(id).default([]), retrySafe: z.boolean().default(false), dependsOn: z.array(id).default([]), blockedBy: z.array(id).default([]), data: z.record(z.string(), z.unknown()).default({}), steps: z.array(Step).default([]) }).strict()),
+  tests: z.array(z.object({ id, title: id, role:id.optional(), user:id.optional(), anonymous:z.boolean().optional(), origin: z.enum(['qe','ai']), status: z.enum(['draft','approved']), review:z.object({reviewer:id,at:z.iso.datetime(),digest:z.string().regex(/^[a-f0-9]{64}$/).optional()}).strict().optional(), covers:z.record(z.string(),z.array(id)).default({}), requirementIds: z.array(id).min(1), evidenceIds: z.array(id).min(1), suites: z.array(id).min(1), tags: z.array(id).default([]), retrySafe: z.boolean().default(false), dependsOn: z.array(id).default([]), blockedBy: z.array(id).default([]), data: z.record(z.string(), z.unknown()).default({}), steps: z.array(Step).default([]) }).strict()),
   release: ReleasePolicy.optional(),
   browsers: z.record(z.string(), BrowserProfile).default({local: BrowserProfile.parse({provider:"local"})}),
   execution: Execution.default(Execution.parse({})),
   reporting: Reporting.default(Reporting.parse({})),
   data: z.record(z.string(), z.unknown()).default({}),
-  environments: z.record(z.string(), z.object({ baseURL: z.url(), data: z.record(z.string(),z.unknown()).default({}) }).strict()),
+  environments: z.record(z.string(), Environment),
   suites: z.record(z.string(), z.object({ data: z.record(z.string(),z.unknown()).default({}) }).strict()),
 }).strict();
 export type Project = z.infer<typeof Project>;
@@ -39,6 +41,17 @@ export function validateProject(raw: unknown): Project {
   unique(p.catalog.map(x=>`${x.kind}:${x.operation}`),'catalog operation: reuse existing action');
   unique(Object.values(p.locators).map(x=>JSON.stringify([x.strategy,x.value,x.name])),'locator: reuse existing locator');
   for(const env of Object.values(p.environments)){const url=new URL(env.baseURL);if(!['http:','https:'].includes(url.protocol)||url.username||url.password) throw new Error('Environment requires an HTTP(S) URL without embedded credentials');}
+  for(const suite of Object.values(p.suites))if(Object.keys(suite.data).some(k=>k.startsWith('user.')||k.startsWith('url.')))throw new Error('user.* and url.* are reserved runtime values');
+  for(const [name,env] of Object.entries(p.environments)) {
+    if(Object.keys(env.urls??{}).some(k=>['web','api'].includes(k)))throw new Error('web and api URL aliases are reserved');
+    for(const raw of [env.baseURL,env.apiURL,...Object.values(env.urls??{})].filter((x):x is string=>!!x)){const u=new URL(raw);if(!['http:','https:'].includes(u.protocol)||u.username||u.password)throw new Error('Environment URLs require HTTP(S) without embedded credentials');}
+    for(const user of Object.values(env.users??{}))if(!Object.hasOwn(p.roles??{},user.role))throw new Error(`Unknown account role in ${name}`);
+    if(env.defaultUser&&!Object.hasOwn(env.users??{},env.defaultUser))throw new Error(`Unknown default user in ${name}`);
+    for(const suite of Object.keys(env.suiteData??{}))if(!Object.hasOwn(p.suites,suite))throw new Error(`Unknown environment suite ${suite}`);
+    for(const id of Object.keys(env.testData??{}))if(!p.tests.some(t=>t.id===id))throw new Error(`Unknown environment test ${id}`);
+    if(env.login)for(const path of [env.login.path,env.login.successPath])if(new URL(path,env.baseURL).origin!==new URL(env.baseURL).origin||new URL(path,env.baseURL).username||new URL(path,env.baseURL).password)throw new Error('Login paths must stay within the web application');
+    for(const values of [p.data,env.data,...Object.values(env.suiteData??{}),...Object.values(env.testData??{})])if(Object.keys(values).some(k=>k.startsWith('user.')||k.startsWith('url.')))throw new Error('user.* and url.* are reserved runtime values');
+  }
   if(!Object.keys(p.browsers).length) throw new Error('At least one browser profile required');
   const evidence = new Set(p.evidence.map(x=>x.id)); const reqs = new Set(p.requirements.map(x=>x.id));
   const tests = new Map(p.tests.map(x=>[x.id,x])); const actions = new Set(p.catalog.map(x=>x.id));
@@ -50,8 +63,11 @@ export function validateProject(raw: unknown): Project {
     for(const b of p.release.requiredProfiles) if(!Object.hasOwn(p.browsers,b)) throw new Error(`Unknown release profile ${b}`);
   }
   for (const t of p.tests) {
+    if(t.role&&!Object.hasOwn(p.roles??{},t.role))throw new Error('Unknown test role');
+    if(t.anonymous&&(t.role||t.user))throw new Error('Anonymous tests cannot require an account or role');
+    if(Object.keys(t.data).some(k=>k.startsWith('user.')||k.startsWith('url.')))throw new Error('user.* and url.* are reserved runtime values');
     for(const [req,criteria] of Object.entries(t.covers)){const requirement=p.requirements.find(r=>r.id===req);if(!t.requirementIds.includes(req)||!requirement) throw new Error(`Invalid criterion mapping ${req}`);unique(criteria,'criterion mapping');for(const c of criteria) if(!requirement.criteria.some(x=>x.id===c)) throw new Error(`Unknown criterion ${c}`);}
-    for(const s of t.steps) for(const key of Object.keys(s.save)){if(!/^[a-zA-Z][\w.-]*$/.test(key)||key.startsWith('superq.')||['__proto__','constructor','prototype'].includes(key)) throw new Error(`Unsafe saved variable ${key}`);}
+    for(const s of t.steps) for(const key of Object.keys(s.save)){if(!/^[a-zA-Z][\w.-]*$/.test(key)||key.startsWith('superq.')||key.startsWith('user.')||key.startsWith('url.')||['__proto__','constructor','prototype'].includes(key)) throw new Error(`Unsafe saved variable ${key}`);}
     for (const e of t.evidenceIds) if (!evidence.has(e)) throw new Error(`Unknown evidence ${e}`);
     for (const r of t.requirementIds) if (!reqs.has(r)) throw new Error(`Unknown requirement ${r}`);
     for (const s of t.suites) if (!Object.hasOwn(p.suites,s)) throw new Error(`Unknown suite ${s}`);
