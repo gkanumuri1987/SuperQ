@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { Project, Result, Step, Assertion, Attempt, Observation } from './model.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { Execution } from './config.js';
-export type Context = { project: Project; baseURL: string; apiURL?: string; urls?: Record<string,string>; account?: {id:string;role:string;username?:string;password?:string;token?:string;mfaSecret?:string}; environment?:string; sso?:Project["environments"][string]["sso"]; login?: NonNullable<Project["environments"][string]["login"]>; data: Record<string,unknown>; testId?: string; attempt?: number; signal?:AbortSignal; observe?:(observation:Omit<Observation,"step">)=>void };
+export type Context = { project: Project; baseURL: string; apiURL?: string; urls?: Record<string,string>; account?: {id:string;role:string;username?:string;password?:string;token?:string;mfaSecret?:string}; environment?:string; sso?:Project["environments"][string]["sso"]; login?: NonNullable<Project["environments"][string]["login"]>; data: Record<string,unknown>; testId?: string; attempt?: number; signal?:AbortSignal; repairBudget?:{remaining:number}; observe?:(observation:Omit<Observation,"step">)=>void };
 export type Handler = (input: Record<string,unknown>, context: Context) => Promise<unknown>;
 export class Registry {
   private handlers = new Map<string,Handler>();
@@ -80,8 +80,8 @@ export async function run(p: Project, env: string, suite: string, registry: Regi
   const results=new Map<string,Result>(); const pending=new Set(tests.map(t=>t.id));
   const running=new Map<string,Promise<void>>(); let failures=0;let timedOut=false;
   async function execute(id:string):Promise<Result> {
-    const t=tests.find(t=>t.id===id)!; const start=Date.now(); const attempts:Attempt[]=[]; const observations:Observation[]=[]; let diagnosticsTruncated=false,finished=false;
-    const finish=(status:Result['status'],reason?:string):Result=>{finished=true;return ({id,observations,diagnosticsTruncated,status,durationMs:Date.now()-start,attempts,flaky:status==='passed'&&attempts.length>1,dependency:!roots.includes(id),...(reason?{reason}:{})});};
+    const t=tests.find(t=>t.id===id)!; const start=Date.now(); const attempts:Attempt[]=[]; const observations:Observation[]=[]; let diagnosticsTruncated=false,finished=false,healed=false;const repairBudget={remaining:1};
+    const finish=(status:Result['status'],reason?:string):Result=>{finished=true;return ({id,healed,observations,diagnosticsTruncated,status,durationMs:Date.now()-start,attempts,flaky:status==='passed'&&attempts.length>1,dependency:!roots.includes(id),...((reason||healed)?{reason:reason??'Speculative locator repair used; review the repair and run again for clean evidence.'}:{})});};
     if(t.status!=='approved') return finish('skipped','Review required');
     if(t.blockedBy.length) return finish('blocked',`Blockers: ${t.blockedBy.join(', ')}`);
     for(const d of t.dependsOn) if(results.get(d)?.status!=='passed') return finish('blocked',`Dependency ${d} did not pass`);
@@ -92,13 +92,13 @@ export async function run(p: Project, env: string, suite: string, registry: Regi
       const attemptStart=Date.now(); let step=0; let failureKind:'action'|'assertion'|'timeout'='action';
       let didTimeout=false;
       try {
-        const data={...structuredClone({...resolveData(p,env,suite,t.data),...p.environments[env]!.testData?.[id]}),...(account?{'user.id':account.id,'user.role':account.role,'user.username':account.username,'user.password':account.password,'user.token':account.token}:{}),'url.web':p.environments[env]!.baseURL,'url.api':p.environments[env]!.apiURL??p.environments[env]!.baseURL,...Object.fromEntries(Object.entries(p.environments[env]!.urls??{}).map(([k,v])=>[`url.${k}`,v])),'superq.testId':id,'superq.attempt':number,'superq.runId':executionId,'superq.environment':env,'superq.suite':suite}; const context={project:p,baseURL:p.environments[env]!.baseURL,apiURL:p.environments[env]!.apiURL,urls:p.environments[env]!.urls,account,environment:env,sso:p.environments[env]!.sso,login:p.environments[env]!.login,data,testId:id,attempt:number};
+        const data={...structuredClone({...resolveData(p,env,suite,t.data),...p.environments[env]!.testData?.[id]}),...(account?{'user.id':account.id,'user.role':account.role,'user.username':account.username,'user.password':account.password,'user.token':account.token}:{}),'url.web':p.environments[env]!.baseURL,'url.api':p.environments[env]!.apiURL??p.environments[env]!.baseURL,...Object.fromEntries(Object.entries(p.environments[env]!.urls??{}).map(([k,v])=>[`url.${k}`,v])),'superq.testId':id,'superq.attempt':number,'superq.runId':executionId,'superq.environment':env,'superq.suite':suite}; const context={project:p,baseURL:p.environments[env]!.baseURL,apiURL:p.environments[env]!.apiURL,urls:p.environments[env]!.urls,account,environment:env,sso:p.environments[env]!.sso,login:p.environments[env]!.login,data,testId:id,attempt:number,repairBudget};
         for(const raw of t.steps) {
           step++; failureKind='action'; const s={...raw,input:interpolate(raw.input,data),assertions:interpolate(raw.assertions,data)} as Step; const action=p.catalog.find(a=>a.id===s.action)!;
           const controller=new AbortController();let timer:ReturnType<typeof setTimeout>|undefined;
           const timeout=new Promise<never>((_,reject)=>{timer=setTimeout(()=>{didTimeout=true;timedOut=true;controller.abort();reject(new Error('Step deadline exceeded'));},options.stepTimeoutMs);});
           let response:unknown;
-          try{response=await Promise.race([registry.get(`${action.kind}:${action.operation}`)(s.input,{...context,signal:controller.signal,observe: o=>{if(finished)return;if(observations.length<1000)observations.push({...o,step,attempt:number});else diagnosticsTruncated=true;}}),timeout]);}
+          try{response=await Promise.race([registry.get(`${action.kind}:${action.operation}`)(s.input,{...context,signal:controller.signal,observe: o=>{if(finished)return;if(o.operation==='web.heal'&&o.status==='passed')healed=true;if(observations.length<1000)observations.push({...o,step,attempt:number});else diagnosticsTruncated=true;}}),timeout]);}
           finally{clearTimeout(timer);}
           failureKind='assertion';
           for(const a of s.assertions) {

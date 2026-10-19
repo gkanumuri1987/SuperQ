@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
-import { ResultSchema, type Project } from './model.js';
+import { isHealed, ResultSchema, type Project } from './model.js';
 import { Execution } from './config.js';
 import { Revision, ArtifactDigest, PromotionManifest } from './release-policy.js';
 import { projectFingerprint, isReviewCurrent, canonical } from './identity.js';
@@ -46,8 +46,8 @@ export function assessPromotion(p:Project,rawManifest:unknown,rawReports:unknown
         if(!test.evidenceIds.every(id=>p.evidence.some(e=>e.id===id&&(e.applicationRevision===manifest.applicationRevision||e.revision===manifest.applicationRevision))))reasons.push(`${id}: test evidence not reviewed for application build`);
         if(!hasAutomation(test)||!test.review)reasons.push(`${id}: approved reviewed assertion-bearing automation required`);
         if(test.review){if(!isReviewCurrent(p,test))reasons.push(`${id}: test changed since review or review digest is missing`);if(Date.parse(test.review.at)>Date.parse(candidates[0]!.report.provenance.startedAt))reasons.push(`${id}: review occurred after execution started`);}
-        record(id,result?.status==='passed'&&!result.flaky);
-        if(!result||result.status!=='passed'||result.flaky)reasons.push(`${suite}/${profile}/${id}: clean passing result required`);
+        record(id,result?.status==='passed'&&!result.flaky&&!isHealed(result));
+        if(!result||result.status!=='passed'||result.flaky||isHealed(result))reasons.push(`${suite}/${profile}/${id}: clean passing result required`);
         const attempts=result?.attempts;
         if(!attempts?.length||attempts.length!==1||attempts[0]?.number!==1||attempts[0]?.status!=='passed')reasons.push(`${suite}/${profile}/${id}: exactly one successful attempt required`);
       }

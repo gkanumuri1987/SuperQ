@@ -1,3 +1,9 @@
+import {
+  LocatorDefinition as locator,
+  RelativePath as relativePath,
+  webCommandSchema,
+} from "./web-commands.js";
+import { ensureAction, ensureLocator } from "./catalog.js";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { Assertion, validateProject, type Project } from "./model.js";
@@ -6,29 +12,6 @@ import { type Planning } from "./planning.js";
 import type { Snapshot } from "./knowledge.js";
 import { resolveAccount, resolveData } from "./runner.js";
 
-const locator = z
-  .object({
-    strategy: z.enum(["role", "label", "text", "testId"]),
-    value: z.string().min(1),
-    name: z.string().optional(),
-  })
-  .strict();
-const relativePath = z
-  .string()
-  .min(1)
-  .refine((p) => {
-    try {
-      const u = new URL(p, "http://superq.invalid/");
-      return (
-        u.origin === "http://superq.invalid" &&
-        !u.username &&
-        !u.password &&
-        !/^[a-z]+:/i.test(p)
-      );
-    } catch {
-      return false;
-    }
-  }, "Use an application-relative path");
 export const Recipe = z.discriminatedUnion("kind", [
   z
     .object({
@@ -53,32 +36,14 @@ export const Recipe = z.discriminatedUnion("kind", [
   z
     .object({
       kind: z.literal("web"),
-      commands: z
-        .array(
-          z.discriminatedUnion("type", [
-            z.object({ type: z.literal("goto"), path: relativePath }).strict(),
-            z.object({ type: z.literal("click"), locator }).strict(),
-            z
-              .object({ type: z.literal("fill"), locator, value: z.string() })
-              .strict(),
-            z
-              .object({
-                type: z.literal("expectText"),
-                locator,
-                value: z.string().min(1),
-              })
-              .strict(),
-          ]),
-        )
-        .min(1)
-        .max(100),
+      commands: z.array(webCommandSchema(locator)).min(1).max(100),
     })
     .strict()
     .refine(
       (r) =>
         r.commands[0]?.type === "goto" &&
-        r.commands.some((c) => c.type === "expectText"),
-      "A web flow needs initial navigation and an explicit expected text assertion",
+        r.commands.some((c) => c.type.startsWith("expect")),
+      "A web flow needs initial navigation and an explicit native assertion",
     ),
 ]);
 export type Recipe = z.infer<typeof Recipe>;
@@ -90,7 +55,7 @@ const Ref = z.object({
 export const IntakePlan = z.object({
   id: z.string(),
   createdAt: z.string(),
-  mode: z.enum(["repository", "inventory", "combined"]),
+  mode: z.enum(["repository", "inventory", "combined", "requirements"]),
   environment: z.string(),
   preference: z.enum(["api", "web"]),
   context: z.object({ project: z.string(), sources: z.string() }),
@@ -98,6 +63,9 @@ export const IntakePlan = z.object({
     z.object({
       id: z.string(),
       title: z.string(),
+      requirementId: z.string().optional(),
+      criterionId: z.string().optional(),
+      targetTestId: z.string().optional(),
       origin: z.enum(["qe", "ai"]).default("ai"),
       evidence: z.array(Ref).min(1),
       steps: z.array(z.object({ action: z.string(), expected: z.string() })),
@@ -163,9 +131,13 @@ export function discover(
     throw new Error("Choose a configured environment");
   const repo = Boolean(snapshot?.files.length),
     inventory = Boolean(planning?.cases.length);
-  if (!repo && !inventory)
+  if (
+    !repo &&
+    !inventory &&
+    !project.requirements.some((r) => r.criteria.length)
+  )
     throw new Error(
-      "Scan committed repository sources or import manual test inventory first. A repository URL alone is not application knowledge.",
+      "Scan committed repository sources or import manual test inventory first. A repository URL alone is not application knowledge; documented acceptance criteria can also supply a starting point.",
     );
   const candidates: Candidate[] = [],
     questions: string[] = [];
@@ -191,6 +163,12 @@ export function discover(
           ),
       )
       .map((t) => t.id);
+    const unimplemented =
+      existingTestIds.length === 1
+        ? project.tests.find(
+            (t) => t.id === existingTestIds[0] && !t.steps.length,
+          )
+        : undefined;
     candidates.push({
       id: `SQ-I-${key(identity)}`,
       origin: "ai",
@@ -199,7 +177,8 @@ export function discover(
       steps,
       dependsOn: [],
       disposition: "current",
-      selected: existingTestIds.length === 0,
+      selected: existingTestIds.length === 0 || !!unimplemented,
+      ...(unimplemented ? { targetTestId: unimplemented.id } : {}),
       questions: [],
       existingTestIds,
       ...extra,
@@ -447,13 +426,60 @@ export function discover(
     questions.push(
       "No supported scenario or OpenAPI response found. Import manual tests, .feature specifications or OpenAPI JSON; a coding agent can help map the evidence, but must not invent expectations.",
     );
+  for (const requirement of project.requirements)
+    for (const criterion of requirement.criteria) {
+      const linked = project.tests.filter((t) =>
+        t.covers[requirement.id]?.includes(criterion.id),
+      );
+      if (linked.some((t) => t.steps.length)) continue;
+      const title =
+        linked.length === 1
+          ? linked[0]!.title
+          : `${requirement.title}: ${criterion.title}`;
+      if (
+        candidates.some(
+          (c) => c.title.trim().toLowerCase() === title.trim().toLowerCase(),
+        )
+      )
+        continue;
+      add(
+        `criterion:${requirement.id}:${criterion.id}`,
+        title,
+        project.evidence
+          .filter((e) => requirement.evidenceIds.includes(e.id))
+          .map(({ source, revision, excerpt }) => ({
+            source,
+            revision,
+            excerpt,
+          })),
+        [
+          {
+            action: "Map the actions that exercise this acceptance criterion",
+            expected: criterion.title,
+          },
+        ],
+        {
+          requirementId: requirement.id,
+          criterionId: criterion.id,
+          ...(linked.length === 1
+            ? { targetTestId: linked[0]!.id, existingTestIds: [linked[0]!.id] }
+            : {}),
+          questions: [
+            "Existing documented criterion has no executable case. Confirm coverage and map an explicit flow; no application behavior was inferred.",
+          ],
+        },
+      );
+    }
   for (const candidate of candidates) {
     if (
       project.tests.some((t) => t.id === candidate.id) &&
       !candidate.existingTestIds.includes(candidate.id)
     )
       candidate.existingTestIds.push(candidate.id);
-    if (candidate.existingTestIds.length) candidate.selected = false;
+    if (candidate.targetTestId && candidate.disposition === "current")
+      candidate.selected = true;
+    if (candidate.existingTestIds.length && !candidate.targetTestId)
+      candidate.selected = false;
     const same = candidates.find(
       (c) =>
         c !== candidate &&
@@ -474,7 +500,14 @@ export function discover(
   return IntakePlan.parse({
     id: `intake-${Date.now()}-${key(candidates.map((c) => c.id).join())}`,
     createdAt: new Date().toISOString(),
-    mode: repo && inventory ? "combined" : repo ? "repository" : "inventory",
+    mode:
+      repo && inventory
+        ? "combined"
+        : repo
+          ? "repository"
+          : inventory
+            ? "inventory"
+            : "requirements",
     environment,
     preference,
     context: {
@@ -491,22 +524,14 @@ export function materialize(project: Project, plan: IntakePlan): Project {
   const selected = plan.candidates.filter((c) => c.selected);
   if (!selected.length) throw new Error("Select at least one test to automate");
   p.suites.intake ??= { data: {} };
-  const addLocator = (definition: z.infer<typeof locator>) => {
-    const found = Object.entries(p.locators).find(
-      ([, l]) => canonical(l) === canonical(definition),
-    );
-    if (found) return found[0];
-    const id = `intake-${key(canonical(definition))}`;
-    if (p.locators[id]) throw new Error("Locator ID collision");
-    p.locators[id] = definition;
-    return id;
-  };
+  const addLocator = (definition: z.infer<typeof locator>) =>
+    ensureLocator(p, definition);
   for (const c of selected) {
     if (c.disposition !== "current")
       throw new Error(
         `${c.title}: resolve scope or lifecycle before automation`,
       );
-    if (c.existingTestIds.length)
+    if (c.existingTestIds.length && !c.targetTestId)
       throw new Error(
         `${c.title}: existing automation found; review it in the test library instead of duplicating work`,
       );
@@ -514,50 +539,70 @@ export function materialize(project: Project, plan: IntakePlan): Project {
       throw new Error(
         `${c.title}: map ${plan.preference} steps and expected assertions first`,
       );
-    if (p.tests.some((t) => t.id === c.id))
+    const previous = c.targetTestId
+      ? p.tests.find((t) => t.id === c.targetTestId)
+      : undefined;
+    if (c.targetTestId && (!previous || previous.steps.length))
+      throw new Error(
+        "Existing automation must be maintained instead of overwritten",
+      );
+    if (!c.targetTestId && p.tests.some((t) => t.id === c.id))
       throw new Error(
         `${c.title}: already generated; reuse the existing draft`,
       );
-    const req = `REQ-${c.id}`,
-      evidenceIds = c.evidence.map((e, n) => {
-        const id = `EV-${c.id}-${n}`;
-        p.evidence.push({ id, ...e });
-        return id;
-      });
-    if (
-      p.requirements.some((r) => r.id === req) ||
-      evidenceIds.some((id) => p.evidence.filter((e) => e.id === id).length > 1)
-    )
-      throw new Error("Intake evidence or requirement ID collision");
-    p.requirements.push({
-      id: req,
-      title: c.title,
-      risk: "medium",
-      criteria: [
-        { id: "expected", title: c.steps.map((s) => s.expected).join("; ") },
-      ],
-      evidenceIds,
+    let req = c.requirementId ?? previous?.requirementIds[0] ?? `REQ-${c.id}`;
+    let criterion = c.criterionId ?? previous?.covers[req]?.[0] ?? "expected";
+    const candidateEvidenceIds = c.evidence.map((e) => {
+      const existing = p.evidence.find(
+        (reference) =>
+          reference.source === e.source &&
+          reference.revision === e.revision &&
+          reference.excerpt === e.excerpt,
+      );
+      if (existing) return existing.id;
+      const id = `EV-${key(canonical(e))}`;
+      if (p.evidence.some((reference) => reference.id === id))
+        throw new Error("Intake evidence ID collision");
+      p.evidence.push({ id, ...e });
+      return id;
     });
-    const operation = c.recipe.kind === "api" ? "request" : "journey";
-    let action = p.catalog.find(
-      (a) => a.kind === c.recipe!.kind && a.operation === operation,
-    );
-    if (!action) {
-      action = {
-        id: `intake.${operation}`,
-        kind: c.recipe.kind,
-        operation,
-        description: "Reviewed intake automation",
-      };
-      if (p.catalog.some((a) => a.id === action!.id))
-        throw new Error("Catalog ID collision");
-      p.catalog.push(action);
+    let evidenceIds: string[];
+    const existingRequirement = p.requirements.find((r) => r.id === req);
+    if (existingRequirement) {
+      if (!existingRequirement.criteria.some((ac) => ac.id === criterion))
+        throw new Error(
+          "Choose an existing acceptance criterion for this case",
+        );
+      evidenceIds = [
+        ...new Set([
+          ...existingRequirement.evidenceIds,
+          ...candidateEvidenceIds,
+        ]),
+      ];
+    } else {
+      evidenceIds = candidateEvidenceIds;
+      p.requirements.push({
+        id: req,
+        title: c.title,
+        risk: "medium",
+        criteria: [
+          { id: criterion, title: c.steps.map((s) => s.expected).join("; ") },
+        ],
+        evidenceIds,
+      });
     }
+    const operation = c.recipe.kind === "api" ? "request" : "journey";
+    const actionId = ensureAction(
+      p,
+      c.recipe.kind,
+      operation,
+      "Reviewed intake automation",
+    );
     const steps: Project["tests"][number]["steps"] = [];
     if (c.recipe.kind === "api")
       for (const r of c.recipe.requests)
         steps.push({
-          action: action.id,
+          action: actionId,
           input: {
             path: r.path,
             method: r.method,
@@ -570,41 +615,74 @@ export function materialize(project: Project, plan: IntakePlan): Project {
       const assertions: z.infer<typeof Assertion>[] = [];
       const commands = c.recipe.commands.map((command, index) => {
         if (command.type === "goto") return command;
-        const id = addLocator(command.locator);
-        if (command.type === "expectText")
+        if (command.type === "expectURL") {
           assertions.push({
             path: `checkpoints.${index + 1}`,
             operator: "equals",
-            expected: command.value,
+            expected: command.path,
+          });
+          return command;
+        }
+        const id = addLocator(command.locator);
+        if (command.type.startsWith("expect"))
+          assertions.push({
+            path: `checkpoints.${index + 1}`,
+            operator: "equals",
+            expected:
+              "value" in command
+                ? command.value
+                : command.type === "expectCount"
+                  ? command.count
+                  : true,
           });
         return { ...command, locator: id };
       });
       steps.push({
-        action: action.id,
+        action: actionId,
         input: { commands },
         assertions,
         save: {},
       });
     }
-    p.tests.push({
-      id: c.id,
+    const test: Project["tests"][number] = {
+      ...(previous ?? {}),
+      id: c.targetTestId ?? c.id,
       title: c.title,
-      role: c.role,
-      user: c.user,
-      anonymous: c.anonymous,
-      origin: c.origin,
+      role: c.role ?? previous?.role,
+      user: c.user ?? previous?.user,
+      anonymous: c.anonymous ?? previous?.anonymous,
+      origin: previous?.origin ?? c.origin,
       status: "draft",
-      requirementIds: [req],
-      covers: { [req]: ["expected"] },
-      evidenceIds,
-      suites: ["intake"],
-      tags: ["intake", plan.preference],
-      dependsOn: c.dependsOn,
-      blockedBy: [],
+      requirementIds: [...new Set([...(previous?.requirementIds ?? []), req])],
+      covers: {
+        ...previous?.covers,
+        [req]: [...new Set([...(previous?.covers[req] ?? []), criterion])],
+      },
+      evidenceIds: [
+        ...new Set([...(previous?.evidenceIds ?? []), ...evidenceIds]),
+      ],
+      suites: [...new Set([...(previous?.suites ?? []), "intake"])],
+      tags: [
+        ...new Set([...(previous?.tags ?? []), "intake", plan.preference]),
+      ],
+      dependsOn: [
+        ...new Set([
+          ...(previous?.dependsOn ?? []),
+          ...c.dependsOn.map(
+            (id) =>
+              plan.candidates.find((candidate) => candidate.id === id)
+                ?.targetTestId ?? id,
+          ),
+        ]),
+      ],
+      blockedBy: previous?.blockedBy ?? [],
       retrySafe: false,
-      data: {},
+      data: previous?.data ?? {},
       steps,
-    });
+    };
+    delete test.review;
+    if (previous) p.tests[p.tests.indexOf(previous)] = test;
+    else p.tests.push(test);
   }
   p = validateProject(p);
   return p;
@@ -625,7 +703,7 @@ export function preflight(project: Project, plan: IntakePlan) {
         c.disposition,
         "Confirm scope/lifecycle and analyze the updated inventory again.",
       );
-    if (c.existingTestIds.length)
+    if (c.existingTestIds.length && !c.targetTestId)
       block(
         "duplicate",
         `Existing tests: ${c.existingTestIds.join(", ")}`,
@@ -689,8 +767,18 @@ export function preflight(project: Project, plan: IntakePlan) {
   try {
     const p = plan.generated ? project : materialize(project, plan);
     for (const c of plan.candidates.filter((c) => c.selected)) {
-      const t = p.tests.find((t) => t.id === c.id)!;
+      const t = p.tests.find((t) => t.id === (c.targetTestId ?? c.id))!;
       try {
+        if (t.blockedBy.length) {
+          blockers.push({
+            candidateId: c.id,
+            kind: "dependency",
+            detail: `Unresolved case blockers: ${t.blockedBy.join(", ")}`,
+            resolution:
+              "Resolve the existing case blockers before approving an automation plan.",
+          });
+          continue;
+        }
         const account = resolveAccount(p, plan.environment, t);
         const environment = p.environments[plan.environment]!;
         if (

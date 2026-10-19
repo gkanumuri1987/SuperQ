@@ -17,6 +17,7 @@ export const Project = z.object({
   catalog: z.array(z.object({ id, kind: z.enum(['api','web','postgres','mongo','snowflake','custom']), operation: id, description: id }).strict()),
   locators: z.record(z.string(), z.object({ strategy: z.enum(['role','label','testId','text']), value: id, name: z.string().optional() }).strict()).default({}),
   tests: z.array(z.object({ id, title: id, role:id.optional(), user:id.optional(), anonymous:z.boolean().optional(), origin: z.enum(['qe','ai']), status: z.enum(['draft','approved']), review:z.object({reviewer:id,at:z.iso.datetime(),digest:z.string().regex(/^[a-f0-9]{64}$/).optional()}).strict().optional(), covers:z.record(z.string(),z.array(id)).default({}), requirementIds: z.array(id).min(1), evidenceIds: z.array(id).min(1), suites: z.array(id).min(1), tags: z.array(id).default([]), retrySafe: z.boolean().default(false), dependsOn: z.array(id).default([]), blockedBy: z.array(id).default([]), data: z.record(z.string(), z.unknown()).default({}), steps: z.array(Step).default([]) }).strict()),
+  healing: z.object({enabled:z.boolean().default(false),waitMs:z.number().int().min(50).max(5000).default(1000),locators:z.record(z.string(),z.array(z.string().min(1)).min(1).max(3)).default({})}).strict().optional(),
   release: ReleasePolicy.optional(),
   browsers: z.record(z.string(), BrowserProfile).default({local: BrowserProfile.parse({provider:"local"})}),
   execution: Execution.default(Execution.parse({})),
@@ -30,10 +31,12 @@ export type TestCase = Project['tests'][number];
 export type Step = z.infer<typeof Step>;
 export type Assertion = z.infer<typeof Assertion>;
 export type Attempt = { number: number; status: 'passed'|'failed'; durationMs: number; failedStep?: number; failureKind?: 'action'|'assertion'|'timeout' };
-export const Observation = z.object({ attempt: z.number().int().positive().optional(), step: z.number().int().positive(), command: z.number().int().positive().optional(), operation: z.string(), status: z.enum(['passed','failed']), locator: z.string().optional(), assertionPath: z.string().optional(), issue: z.enum(['navigation-failed','control-unavailable','ambiguous-control','interaction-failed','expectation-failed','assertion-failed']).optional() }).strict();
+export const Observation = z.object({ attempt: z.number().int().positive().optional(), step: z.number().int().positive(), command: z.number().int().positive().optional(), operation: z.string(), status: z.enum(['passed','failed']), locator: z.string().optional(), replacement: z.string().optional(), assertionPath: z.string().optional(), issue: z.enum(['navigation-failed','control-unavailable','ambiguous-control','interaction-failed','expectation-failed','assertion-failed']).optional() }).strict();
 export type Observation = z.infer<typeof Observation>;
-export const ResultSchema=z.object({id,observations:z.array(Observation).optional(),diagnosticsTruncated:z.boolean().optional(),status:z.enum(['passed','failed','blocked','skipped']),durationMs:z.number().finite().nonnegative(),reason:z.string().optional(),flaky:z.boolean().optional(),dependency:z.boolean().optional(),attempts:z.array(z.object({number:z.number().int().positive(),status:z.enum(['passed','failed']),durationMs:z.number().finite().nonnegative(),failedStep:z.number().int().nonnegative().optional(),failureKind:z.enum(['action','assertion','timeout']).optional()}).strict()).optional()}).strict();
-export type Result = { id: string; observations?: Observation[]; diagnosticsTruncated?: boolean; status: 'passed'|'failed'|'blocked'|'skipped'; durationMs: number; reason?: string; attempts?: Attempt[]; flaky?: boolean; dependency?: boolean };
+export const ResultSchema=z.object({id,healed:z.boolean().optional(),observations:z.array(Observation).optional(),diagnosticsTruncated:z.boolean().optional(),status:z.enum(['passed','failed','blocked','skipped']),durationMs:z.number().finite().nonnegative(),reason:z.string().optional(),flaky:z.boolean().optional(),dependency:z.boolean().optional(),attempts:z.array(z.object({number:z.number().int().positive(),status:z.enum(['passed','failed']),durationMs:z.number().finite().nonnegative(),failedStep:z.number().int().nonnegative().optional(),failureKind:z.enum(['action','assertion','timeout']).optional()}).strict()).optional()}).strict();
+export type Result = { id: string; healed?: boolean; observations?: Observation[]; diagnosticsTruncated?: boolean; status: 'passed'|'failed'|'blocked'|'skipped'; durationMs: number; reason?: string; attempts?: Attempt[]; flaky?: boolean; dependency?: boolean };
+
+export function isHealed(result: Pick<Result,"healed"|"observations">) {return Boolean(result.healed||result.observations?.some(o=>o.operation==='web.heal'&&o.status==='passed'));}
 
 export function validateProject(raw: unknown): Project {
   const p = Project.parse(raw);
@@ -42,6 +45,9 @@ export function validateProject(raw: unknown): Project {
   unique(p.evidence.map(x=>x.id),'evidence ID'); unique(p.catalog.map(x=>x.id),'action ID');
   unique(p.catalog.map(x=>`${x.kind}:${x.operation}`),'catalog operation: reuse existing action');
   unique(Object.values(p.locators).map(x=>JSON.stringify([x.strategy,x.value,x.name])),'locator: reuse existing locator');
+  for(const [original,alternatives] of Object.entries(p.healing?.locators??{})) {
+    if(!Object.hasOwn(p.locators,original)||alternatives.some(id=>!Object.hasOwn(p.locators,id)||id===original)||new Set(alternatives).size!==alternatives.length)throw new Error('Healing alternatives must reference distinct existing catalog locators');
+  }
   for(const env of Object.values(p.environments)){const url=new URL(env.baseURL);if(!['http:','https:'].includes(url.protocol)||url.username||url.password) throw new Error('Environment requires an HTTP(S) URL without embedded credentials');}
   for(const suite of Object.values(p.suites))if(Object.keys(suite.data).some(k=>k.startsWith('user.')||k.startsWith('url.')))throw new Error('user.* and url.* are reserved runtime values');
   for(const [name,env] of Object.entries(p.environments)) {

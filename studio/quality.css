@@ -1,0 +1,94 @@
+.capability-strip {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 28px;
+}
+.capability-strip button {
+  background: white;
+  border: 1px solid #dfe5ef;
+  border-radius: 10px;
+  padding: 12px;
+  text-align: left;
+  line-height: 1.5;
+}
+.capability-strip button:hover {
+  border-color: #6b8ee9;
+  background: #f4f7ff;
+}
+.capability-strip strong {
+  display: block;
+  font-size: 12px;
+  color: #243550;
+}
+.capability-strip small {
+  display: block;
+  font-size: 10px;
+  color: #69788d;
+  margin-top: 4px;
+}
+.quality-home {
+  max-width: 1000px;
+}
+.quality-home .quality-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+}
+.quality-check input {
+  width: 18px;
+  height: 18px;
+}
+.quality-rule {
+  display: flex;
+  gap: 15px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 0;
+  border-bottom: 1px solid #e7ebf2;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.quality-repair {
+  margin: 18px 0;
+  border: 1px solid #dfe5ef;
+  border-radius: 10px;
+  padding: 18px;
+}
+.quality-repair small {
+  display: block;
+  margin-top: 14px;
+}
+.quality-table {
+  overflow: auto;
+  margin: 20px 0;
+}
+.quality-table table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 12px;
+}
+.quality-table td,
+.quality-table th {
+  padding: 12px;
+  border-bottom: 1px solid #e0e6ef;
+}
+.quality-home li {
+  line-height: 1.7;
+  margin: 12px 0;
+}
+@media (max-width: 1200px) {
+  .capability-strip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (max-width: 700px) {
+  .capability-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .quality-rule {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+}

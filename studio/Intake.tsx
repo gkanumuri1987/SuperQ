@@ -272,7 +272,8 @@ export default function Intake({ state, status, agent, action, go }: Props) {
           disabled={
             pending ||
             (!state.sourceSnapshot?.files.length &&
-              !state.planning?.cases.length)
+              !state.planning?.cases.length &&
+              !state.project.requirements.some((r) => r.criteria.length))
           }
           onClick={() => {
             setAcknowledge(false);
@@ -349,7 +350,12 @@ export default function Intake({ state, status, agent, action, go }: Props) {
                   : "Needs action mapping"}
               </p>
               {c.existingTestIds.length > 0 && (
-                <p>Reuse existing tests: {c.existingTestIds.join(", ")}</p>
+                <p>
+                  {c.targetTestId
+                    ? "Enhance existing manual case"
+                    : "Reuse existing tests"}
+                  : {c.existingTestIds.join(", ")}
+                </p>
               )}
               <details>
                 <summary>Steps, expectations & source evidence</summary>
@@ -641,7 +647,7 @@ function RecipeSummary({ recipe }: { recipe: Recipe }) {
     <ol>
       {recipe.commands.map((c, i) => (
         <li key={i}>
-          {c.type === "goto"
+          {"path" in c
             ? `Navigate to ${c.path}`
             : `${c.type} · ${c.locator.strategy}: ${c.locator.name ?? c.locator.value}${"value" in c ? ` → ${c.value}` : ""}`}
         </li>
@@ -812,7 +818,7 @@ function Mapping({
               <legend>
                 Step {n + 1} · {c.type}
               </legend>
-              {c.type === "goto" ? (
+              {"path" in c ? (
                 <label>
                   Application path
                   <input
@@ -870,6 +876,21 @@ function Mapping({
                       </label>
                     )}
                   </div>
+                  {c.type === "expectCount" && (
+                    <label>
+                      Expected element count
+                      <input
+                        type="number"
+                        min={0}
+                        required
+                        value={c.count}
+                        onChange={(e) => {
+                          c.count = Number(e.target.value);
+                          update();
+                        }}
+                      />
+                    </label>
+                  )}
                   {"value" in c && (
                     <label>
                       {c.type === "fill"
@@ -1003,6 +1024,56 @@ function Mapping({
         >
           Add API request
         </button>
+      )}
+      {recipe.kind === "web" && (
+        <label>
+          More Playwright actions
+          <select
+            value=""
+            onChange={(e) => {
+              const type = e.target.value;
+              let command: Extract<Recipe, { kind: "web" }>["commands"][number];
+              if (type === "expectURL") command = { type, path: "" };
+              else if (type === "expectCount")
+                command = {
+                  type,
+                  locator: { strategy: "role", value: "listitem" },
+                  count: 1,
+                };
+              else if (type === "selectOption" || type === "expectValue")
+                command = {
+                  type,
+                  locator: { strategy: "label", value: "" },
+                  value: "",
+                };
+              else if (
+                type === "check" ||
+                type === "uncheck" ||
+                type === "expectVisible"
+              )
+                command = { type, locator: { strategy: "label", value: "" } };
+              else return;
+              const last = recipe.commands.at(-1);
+              recipe.commands.splice(
+                !type.startsWith("expect") && last?.type.startsWith("expect")
+                  ? recipe.commands.length - 1
+                  : recipe.commands.length,
+                0,
+                command,
+              );
+              update();
+            }}
+          >
+            <option value="">Add an interaction or assertion…</option>
+            <option value="selectOption">Select dropdown option</option>
+            <option value="check">Check checkbox</option>
+            <option value="uncheck">Uncheck checkbox</option>
+            <option value="expectValue">Assert field value</option>
+            <option value="expectVisible">Assert visible element</option>
+            <option value="expectCount">Assert element count</option>
+            <option value="expectURL">Assert application URL</option>
+          </select>
+        </label>
       )}
       <label>
         Required business role

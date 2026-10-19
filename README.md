@@ -2,7 +2,7 @@
 
 Evidence-driven automation for quality engineering teams. SuperQ keeps application source read-only and owns its test catalog, assertions, data and execution in a separate repository.
 
-**Status: runnable foundation, not a finished enterprise platform.** Web and API execution are demonstrated locally. PostgreSQL, MongoDB and Snowflake adapters and Jira/ADO read connectors need integration validation with your systems. AI supports optional local Ollama proposals and a provider interface. Healing remains a reviewable proposal boundary; no autonomous learning, model subscription or paid calls are enabled.
+**Status: runnable foundation, not a finished enterprise platform.** Web and API execution are demonstrated locally. PostgreSQL, MongoDB and Snowflake adapters and Jira/ADO read connectors need integration validation with your systems. AI supports optional local Ollama proposals and a provider interface. Optional catalog-based local healing retains failures and requires reviewed repair plus a clean rerun; no autonomous learning, model subscription or paid calls are enabled.
 
 ## Open the guided Studio
 
@@ -19,6 +19,10 @@ Open `http://127.0.0.1:4310` to start with **Automate**: choose an expectation, 
 Studio → **Start from sources** prepares a reviewable automation plan from committed sources, manual inventory or both. Paste spreadsheet cases, map API requests or ordered web interactions, resolve data/accounts/dependencies, approve the plan, generate reusable drafts and run an actual local trial. Source/configuration changes invalidate old plan approval; command and assertion diagnostics retain failed steps. See [guided intake and corporate agents](docs/guided-intake-and-agents.md).
 
 The included **stdio MCP server** lets a permitted corporate Copilot or another MCP-capable host read shared evidence, propose cited scenarios/mappings and optionally run separately authorized reviewed trials. It cannot approve plans through its tools. Corporate model access remains with the host; no model subscription or paid call is enabled by SuperQ. Platform authentication/isolation remains enterprise work.
+
+## Automation care
+
+Top shortcuts now connect generation, catalog reuse, reports, feature coverage and **Quality & maintenance**. Configure bounded local healing, inspect package/lockfile/browser health, and review duplicate-flow candidates. Intake can generate from documented criteria with no tests and enhance an existing empty manual case while preserving its ID/data. Guided Playwright flows also support dropdowns, checkboxes, URL/value/visibility/count assertions and independent checkpoints. See [setup and boundaries](docs/automation-care.md).
 
 ## Run locally
 
@@ -63,7 +67,7 @@ Optional local AI is now available through `suggest project.json REQ-ID --model 
 | Dependencies | Cycles rejected; bounded parallel workers; prerequisite failures block descendants; explicit blockers recorded |
 | Knowledge | Explicit tracked-file snapshots at committed revisions, hashes and change reports; no source writes |
 | AI controls | Provider interface, evidence reference validation, bounded reservations, in-process cache, no retry loops |
-| Healing | Candidate eligibility proposal only; human review always required |
+| Healing | Opt-in bounded local locator alternatives; original failure retained; staged draft repairs and clean-rerun gates |
 | BDD | Runnable Cucumber scenario reuses the same catalog and execution engine |
 | Trackers | Programmatic read-only Jira Cloud issue and Azure DevOps work-item connectors |
 | CI | GitHub Actions and Azure Pipelines examples |

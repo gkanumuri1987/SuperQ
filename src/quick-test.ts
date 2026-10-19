@@ -1,3 +1,4 @@
+import { ensureAction, ensureLocator } from "./catalog.js";
 import { z } from "zod";
 import { validateProject, type Project } from "./model.js";
 const common = {
@@ -74,49 +75,22 @@ export function createQuickTest(project: Project, input: unknown) {
   p.suites[suite] ??= { data: {} };
   const kind = i.kind === "api" ? "api" : "web",
     operation = i.kind === "api" ? "request" : "journey";
-  let action = p.catalog.find(
-    (a) => a.kind === kind && a.operation === operation,
+  const actionId = ensureAction(
+    p,
+    kind,
+    operation,
+    kind === "api"
+      ? "Send a request and check the expected response"
+      : "Follow a functional flow and check the screen",
   );
-  const free = (base: string, keys: string[]) => {
-    let key = base,
-      n = 2;
-    while (keys.includes(key)) key = `${base}-${n++}`;
-    return key;
-  };
-  if (!action) {
-    action = {
-      id: free(
-        `quick.${operation}`,
-        p.catalog.map((a) => a.id),
-      ),
-      kind,
-      operation,
-      description:
-        kind === "api"
-          ? "Send a request and check the expected response"
-          : "Follow a functional flow and check the screen",
-    };
-    p.catalog.push(action);
-  }
-  const locator = (def: Project["locators"][string]) => {
-    const old = Object.entries(p.locators).find(
-      ([, d]) =>
-        d.strategy === def.strategy &&
-        d.value === def.value &&
-        d.name === def.name,
-    );
-    if (old) return old[0];
-    const id = free("control", Object.keys(p.locators));
-    p.locators[id] = def;
-    return id;
-  };
+  const locator = (def: Project["locators"][string]) => ensureLocator(p, def);
   let step;
   if (i.kind === "api") {
     const path = i.responseField.startsWith("body.")
       ? i.responseField
       : `body.${i.responseField}`;
     step = {
-      action: action.id,
+      action: actionId,
       input: {
         path: i.path,
         method: i.method,
@@ -163,7 +137,7 @@ export function createQuickTest(project: Project, input: unknown) {
       value: i.expectation.text,
     });
     step = {
-      action: action.id,
+      action: actionId,
       input: { commands },
       assertions: [
         {

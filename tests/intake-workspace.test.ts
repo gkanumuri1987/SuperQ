@@ -235,3 +235,101 @@ test("SSO session prerequisites are reported before plan approval without launch
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("requirements-only intake automates an existing manual ID and executes that exact case", async () => {
+  const { createQuickTest } = await import("../src/quick-test.js");
+  const dir = await mkdtemp(join(tmpdir(), "superq-existing-manual-")),
+    app = await startWorkspace({ port: 0, file: join(dir, "state.json") });
+  try {
+    let state = await (await fetch(`${app.url}/api/workspace`)).json();
+    const post = async (
+      path: string,
+      input: Record<string, unknown>,
+      expected = 200,
+    ) => {
+      const r = await fetch(`${app.url}/api/${path}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-superq-token": state.token,
+        },
+        body: JSON.stringify({ revision: state.revision, ...input }),
+      });
+      const data = await r.json();
+      assert.equal(r.status, expected, JSON.stringify(data));
+      state = await (await fetch(`${app.url}/api/workspace`)).json();
+    };
+    const original = fixtureProject(`${app.url}/`);
+    original.evidence = [
+      {
+        id: "EV",
+        source: "Health contract",
+        revision: "1",
+        excerpt: "HTTP 200 and status ok",
+      },
+    ];
+    original.requirements = [
+      {
+        id: "REQ",
+        title: "API health",
+        risk: "medium",
+        criteria: [{ id: "AC", title: "Health status is ok" }],
+        evidenceIds: ["EV"],
+      },
+    ];
+    const p = createQuickTest(original, {
+      kind: "api",
+      id: "SQ-manual-health",
+      title: "Existing manual health",
+      requirementId: "REQ",
+      criterionId: "AC",
+      path: "/sample-app/api/health",
+      responseField: "status",
+      expected: "ok",
+    });
+    p.tests[0]!.steps = [];
+    p.tests[0]!.data = { region: "east" };
+    await post("import", { project: p });
+    await post("intake/analyze", { environment: "test", preference: "api" });
+    assert.equal(state.intake.mode, "requirements");
+    assert.equal(state.intake.candidates[0].targetTestId, "SQ-manual-health");
+    await post("intake/map", {
+      candidateId: state.intake.candidates[0].id,
+      patch: {
+        recipe: {
+          kind: "api",
+          requests: [
+            {
+              path: "/sample-app/api/health",
+              method: "GET",
+              assertions: [
+                { path: "status", operator: "equals", expected: 200 },
+                { path: "body.status", operator: "equals", expected: "ok" },
+              ],
+            },
+          ],
+        },
+      },
+    });
+    await post("intake/review", { reviewer: "QE" });
+    await post("intake/generate", {});
+    assert.deepEqual(state.intake.generated.testIds, ["SQ-manual-health"]);
+    assert.equal(state.project.tests.length, 1);
+    assert.equal(state.project.requirements.length, 1);
+    assert.equal(state.project.catalog.length, 1);
+    assert.deepEqual(state.project.tests[0].data, { region: "east" });
+    await post("intake/trial", {}, 202);
+    for (let n = 0; n < 200; n++) {
+      state = await (await fetch(`${app.url}/api/workspace`)).json();
+      if (state.runs[0].state !== "running") break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    assert.equal(state.runs[0].report.results[0].id, "SQ-manual-health");
+    assert.equal(state.runs[0].report.results[0].status, "passed");
+    assert.equal(state.runs[0].draftValidation, true);
+    assert.equal(state.project.tests[0].status, "draft");
+  } finally {
+    await app.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});

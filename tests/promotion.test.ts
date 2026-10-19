@@ -29,7 +29,7 @@ test('promotion fails closed on missing policy/provenance, dirty automation, sta
   }
 });
 test('promotion rejects missing matrix results, duplicate tests, flaky passes and forged summary percentages',()=>{
-  const mutations=[(f:ReturnType<typeof fixture>)=>{f.report.runs[0]!.results=[];},(f:ReturnType<typeof fixture>)=>{f.report.runs[0]!.results.push({...f.report.runs[0]!.results[0]!});},(f:ReturnType<typeof fixture>)=>{f.report.runs[0]!.results[0]!.flaky=true;},(f:ReturnType<typeof fixture>)=>{f.report.runs[0]!.results[0]!.status='failed';f.report.summary.failed=0;f.report.gates=[];f.report.coverage.riskWeightedProven=1;}];
+  const mutations=[(f:ReturnType<typeof fixture>)=>{f.report.runs[0]!.results=[];},(f:ReturnType<typeof fixture>)=>{f.report.runs[0]!.results.push({...f.report.runs[0]!.results[0]!});},(f:ReturnType<typeof fixture>)=>{f.report.runs[0]!.results[0]!.flaky=true;},(f:ReturnType<typeof fixture>)=>{f.report.runs[0]!.results[0]!.healed=true;},(f:ReturnType<typeof fixture>)=>{f.report.runs[0]!.results[0]!.status='failed';f.report.summary.failed=0;f.report.gates=[];f.report.coverage.riskWeightedProven=1;}];
   for(const mutate of mutations){const f=fixture();mutate(f);assert.equal(assessPromotion(f.p,f.manifest,[f.report],f.now).decision,'blocked');}
 });
 test('promotion requires exact artifact, fresh external checks and independent release approvals',()=>{

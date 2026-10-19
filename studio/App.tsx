@@ -1,3 +1,4 @@
+import Quality, { Capabilities, type Care } from "./Quality";
 import Intake from "./Intake";
 import type { preflight, IntakePlan } from "../src/intake";
 import Environments from "./Environments";
@@ -66,6 +67,7 @@ import type { coverage } from "../src/coverage";
 import type { audit } from "../src/audit";
 type Data = WorkspaceState & {
   token: string;
+  care: Care;
   intakeStatus: {
     plan: IntakePlan | null;
     stale: boolean;
@@ -88,6 +90,7 @@ const navigation = [
     items: [
       { id: "automate", label: "Automate", icon: Zap },
       { id: "intake", label: "Start from sources", icon: Workflow },
+      { id: "quality", label: "Quality & maintenance", icon: Wrench },
       { id: "overview", label: "Overview", icon: LayoutDashboard },
     ],
   },
@@ -309,6 +312,7 @@ export default function App() {
     [resolution, setResolution] = useState("");
   const [modalRevision, setModalRevision] = useState(0);
   const [moreTools, setMoreTools] = useState(false);
+  const [qualityView, setQualityView] = useState("healing");
   function setModal(value: string | null) {
     setModalRevision(data?.revision ?? 0);
     setModalState(value);
@@ -490,6 +494,7 @@ export default function App() {
                       [
                         "automate",
                         "intake",
+                        "quality",
                         "tests",
                         "runs",
                         "maintenance",
@@ -580,6 +585,27 @@ export default function App() {
           </div>
         </header>
         <main id="main-content" tabIndex={-1}>
+          <Capabilities
+            go={go}
+            tests={p.tests.length}
+            openQuality={(view) => {
+              setQualityView(view);
+              go("quality");
+            }}
+          />
+          {page === "quality" && (
+            <Quality
+              key={JSON.stringify(p.healing)}
+              view={qualityView}
+              onViewChange={setQualityView}
+              state={data}
+              care={data.care}
+              action={(path, body) =>
+                mutate(path, body, "Automation maintenance updated")
+              }
+              go={go}
+            />
+          )}
           {error && (
             <div className="error-banner" role="alert">
               <CircleDot size={18} />

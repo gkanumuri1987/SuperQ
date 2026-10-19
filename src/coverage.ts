@@ -1,8 +1,9 @@
+import { isHealed } from "./model.js";
 import { isReviewCurrent } from './identity.js';
 import type { Project, Result, TestCase } from './model.js';
 export const hasAutomation=(t:TestCase)=>t.status==='approved'&&!t.blockedBy.length&&t.steps.length>0&&t.steps.some(s=>s.assertions.length>0);
 export function coverage(p: Project, results: Result[] = []) {
-  const passed=(id:string)=>{const matching=results.filter(x=>x.id===id);return matching.length===1&&matching[0]!.status==='passed'&&!matching[0]!.flaky;};
+  const passed=(id:string)=>{const matching=results.filter(x=>x.id===id);return matching.length===1&&matching[0]!.status==='passed'&&!matching[0]!.flaky&&!isHealed(matching[0]!);};
   const rows = p.requirements.map(r => {
     const tests = p.tests.filter(t=>t.requirementIds.includes(r.id));
     const approved = tests.filter(t=>t.status==='approved');
@@ -10,6 +11,7 @@ export function coverage(p: Project, results: Result[] = []) {
     const gaps: string[] = [];
     const reviewed=approved.length>0&&approved.every(t=>isReviewCurrent(p,t));
     if (!reviewed) gaps.push('missing-qe-review');
+    if(tests.some(t=>results.some(r=>r.id===t.id&&isHealed(r))))gaps.push('healing-review-required');
     if (!approved.length) gaps.push('no-approved-test');
     if (!automated.length) gaps.push('missing-asserted-automation');
     if (tests.some(t=>t.blockedBy.length)) gaps.push('blocker');

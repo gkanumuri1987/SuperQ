@@ -1,3 +1,7 @@
+import { frameworkHealth } from "./framework-health.js";
+import { catalogHealth, ensureLocator } from "./catalog.js";
+import { LocatorDefinition } from "./web-commands.js";
+import { stageRepair } from "./healing.js";
 import {
   IntakePlan,
   Recipe,
@@ -8,6 +12,7 @@ import {
   materialize,
   assertPlanCurrent,
   proposeCase,
+  intakeSources,
 } from "./intake.js";
 import {
   beginSignIn,
@@ -55,6 +60,11 @@ import { ollamaProvider } from "./ollama.js";
 import { snapshot, changes, type Snapshot } from "./knowledge.js";
 import { Planning } from "./planning.js";
 export type WorkspaceState = {
+  frameworkCheck?: {
+    at: string;
+    fingerprint: string;
+    report: Awaited<ReturnType<typeof frameworkHealth>>;
+  };
   intake?: IntakePlan;
   planning?: Planning;
   testDesign?: TestDesign;
@@ -80,6 +90,8 @@ export type WorkspaceState = {
     at: string;
     report?: Report;
     draftValidation?: boolean;
+    sourceFingerprint?: string;
+    sourceContext?: string;
     error?: string;
   }[];
   history: { id: string; at: string; title: string; project: Project }[];
@@ -398,6 +410,8 @@ export async function startWorkspace(
     const job: WorkspaceState["runs"][number] = {
       id: randomUUID(),
       state: "running",
+      sourceFingerprint: projectFingerprint(state.project),
+      sourceContext: intakeSources(state.planning, state.sourceSnapshot),
       draftValidation: input.validateDrafts,
       at: new Date().toISOString(),
     };
@@ -464,7 +478,9 @@ export async function startWorkspace(
       for (const c of plan.candidates.filter(
         (c) => c.selected && c.recipe?.kind === "web" && !c.anonymous,
       )) {
-        const test = project.tests.find((t) => t.id === c.id)!;
+        const test = project.tests.find(
+          (t) => t.id === (c.targetTestId ?? c.id),
+        )!;
         const account = resolveAccount(project, plan.environment, test);
         if (
           !account ||
@@ -550,7 +566,9 @@ export async function startWorkspace(
       materialize(state.project, plan),
     );
     plan.generated = {
-      testIds: plan.candidates.filter((c) => c.selected).map((c) => c.id),
+      testIds: plan.candidates
+        .filter((c) => c.selected)
+        .map((c) => c.targetTestId ?? c.id),
       project: projectFingerprint(state.project),
     };
   }
@@ -664,6 +682,8 @@ export async function startWorkspace(
                 },
               ]),
             ),
+            frameworkCheck: state.frameworkCheck,
+            healingPolicy: state.project.healing,
             catalog: state.project.catalog,
             locators: state.project.locators,
             requirements: state.project.requirements,
@@ -778,6 +798,47 @@ export async function startWorkspace(
         json(res, 200, {
           ...state,
           token,
+          care: {
+            frameworkCurrent:
+              state.frameworkCheck?.fingerprint ===
+              projectFingerprint(state.project),
+            catalog: catalogHealth(state.project),
+            repairs: state.runs
+              .filter((r) => r.report && r.state === "completed")
+              .slice(0, 20)
+              .flatMap((job) =>
+                job
+                  .report!.results.filter(
+                    (t) => t.status === "passed" && t.healed,
+                  )
+                  .flatMap((test) =>
+                    (test.observations ?? []).flatMap((o, index) =>
+                      o.operation === "web.heal" && o.status === "passed"
+                        ? [
+                            {
+                              runId: job.id,
+                              testId: test.id,
+                              title: test.title,
+                              observationIndex: index,
+                              original: o.locator,
+                              replacement: o.replacement,
+                              step: o.step,
+                              command: o.command,
+                              current:
+                                job.sourceFingerprint ===
+                                  projectFingerprint(state.project) &&
+                                job.sourceContext ===
+                                  intakeSources(
+                                    state.planning,
+                                    state.sourceSnapshot,
+                                  ),
+                            },
+                          ]
+                        : [],
+                    ),
+                  ),
+              ),
+          },
           intakeStatus: await intakeContext(),
           agentConnection: {
             enabled: !!agentAccess,
@@ -877,7 +938,67 @@ export async function startWorkspace(
           });
           return;
         }
-        if (path === "/api/intake/analyze") {
+        if (path === "/api/framework-check") {
+          state.frameworkCheck = {
+            at: new Date().toISOString(),
+            fingerprint: projectFingerprint(state.project),
+            report: await frameworkHealth(state.project),
+          };
+          state.revision++;
+          activity(
+            "Framework diagnostics completed",
+            "Local package, browser and catalog checks saved; no upgrades or paid sessions started.",
+          );
+        } else if (path === "/api/healing/configure") {
+          if (canonical(data.base) !== canonical(state.project.healing))
+            throw new Error("Healing policy changed. Refresh before saving.");
+          const p = structuredClone(state.project);
+          const input = z
+            .object({
+              enabled: z.boolean(),
+              original: z.string().min(1).optional(),
+              alternative: z.string().min(1).optional(),
+              removeOriginal: z.string().min(1).optional(),
+              definition: LocatorDefinition.optional(),
+              waitMs: z.number().int().min(50).max(5000).optional(),
+            })
+            .strict()
+            .parse(data.settings);
+          p.healing ??= { enabled: false, waitMs: 1000, locators: {} };
+          p.healing.enabled = input.enabled;
+          p.healing.waitMs = input.waitMs ?? p.healing.waitMs;
+          if (input.removeOriginal)
+            delete p.healing.locators[input.removeOriginal];
+          if (input.original) {
+            const alternative = input.definition
+              ? ensureLocator(p, input.definition)
+              : input.alternative;
+            if (!alternative)
+              throw new Error("Choose or define a catalog alternative");
+            p.healing.locators[input.original] = [alternative];
+          }
+          change("Local healing policy configured", validateProject(p));
+        } else if (path === "/api/healing/stage") {
+          const job = state.runs.find((r) => r.id === data.runId);
+          const result = job?.report?.results.find((r) => r.id === data.testId);
+          if (
+            !job?.sourceFingerprint ||
+            job.state !== "completed" ||
+            job.sourceContext !==
+              intakeSources(state.planning, state.sourceSnapshot) ||
+            !result
+          )
+            throw new Error("Select a recent recorded healing trial");
+          change(
+            "Locator repair staged as a draft",
+            stageRepair(
+              state.project,
+              result,
+              job.sourceFingerprint,
+              z.number().int().min(0).parse(data.observationIndex),
+            ),
+          );
+        } else if (path === "/api/intake/analyze") {
           state.intake = discover(
             state.project,
             z.string().parse(data.environment),
