@@ -1,3 +1,4 @@
+import CoverageLab from "./CoverageLab";
 import PlanningScreen from "./Planning";
 import {
   useEffect,
@@ -76,6 +77,7 @@ const navigation = [
       { id: "planning", label: "Intake & sprint planning", icon: FileText },
       { id: "requirements", label: "Requirements", icon: FileText },
       { id: "tests", label: "Test library", icon: ListChecks },
+      { id: "design", label: "Coverage Lab", icon: Target },
       { id: "catalog", label: "Automation catalog", icon: Boxes },
     ],
   },
@@ -542,6 +544,18 @@ export default function App() {
               value={data.planning}
               save={(planning) =>
                 mutate("planning", { planning }, "Planning intake saved")
+              }
+            />
+          )}
+          {page === "design" && (
+            <CoverageLab
+              value={data.testDesign}
+              save={(design, baseDesign) =>
+                mutate(
+                  "test-design",
+                  { design, baseDesign },
+                  "Coverage design saved",
+                )
               }
             />
           )}

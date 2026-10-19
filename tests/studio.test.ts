@@ -201,3 +201,75 @@ test("Studio imports sprint intake and preserves executable coverage", async () 
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("Coverage Lab generates constrained data, saves the model and keeps proof unchanged", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "superq-design-"));
+  const file = join(dir, "state.json");
+  const app = await startWorkspace({ port: 0, file });
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage({
+      viewport: { width: 1440, height: 1000 },
+    });
+    await page.goto(`${app.url}/#design`);
+    await page
+      .getByRole("heading", { name: "Coverage Lab", exact: true })
+      .waitFor();
+    const before = await (await fetch(`${app.url}/api/workspace`)).json();
+    await page.getByLabel("Source document or story").fill("ED/checkout");
+    await page.getByLabel("Source revision").fill("7");
+    await page
+      .getByLabel("Relevant rule or excerpt")
+      .fill("Checkout supports browser, customer and payment combinations.");
+    await page
+      .getByLabel("Forbidden combinations")
+      .fill('[{"customer":"Guest","payment":"Wallet"}]');
+    await page.getByRole("button", { name: "Generate pairwise data" }).click();
+    await page.getByRole("heading", { name: "Review your dataset" }).waitFor();
+    assert.ok((await page.locator("tbody tr").count()) < 9);
+    await page
+      .getByRole("button", { name: "Save design", exact: true })
+      .click();
+    await page.getByText("Coverage design saved", { exact: true }).waitFor();
+    const after = await (await fetch(`${app.url}/api/workspace`)).json();
+    assert.equal(after.testDesign.evidence.revision, "7");
+    const stale = await fetch(`${app.url}/api/test-design`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-superq-token": after.token,
+      },
+      body: JSON.stringify({
+        revision: after.revision,
+        baseDesign: null,
+        design: { ...after.testDesign, title: "Stale overwrite" },
+      }),
+    });
+    assert.equal(stale.status, 409);
+    assert.deepEqual(after.project, before.project);
+    assert.deepEqual(after.coverage, before.coverage);
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Export model & data" }).click();
+    assert.equal(
+      (await download).suggestedFilename(),
+      "superq-pairwise-design.json",
+    );
+    await page.reload();
+    await expect(page.getByLabel("Source revision")).toHaveValue("7");
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForFunction(
+      () =>
+        document.querySelector(".sidebar")!.getBoundingClientRect().right <= 0,
+    );
+    assert.equal(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+      true,
+    );
+  } finally {
+    await browser.close();
+    await app.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});

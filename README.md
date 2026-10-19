@@ -123,3 +123,7 @@ Pass all paths in scope for each snapshot; omission is interpreted as removal. F
 `src/connectors.ts` exposes `readJiraIssue` and `readAdoWorkItem`. They return source identity, revision and raw descriptions; Jira ADF/ADO HTML is retained rather than guessed into executable tests. Supply credentials from a secret store. Native test-management plugins (Xray/Zephyr), bulk synchronization, tracker writes and result publication are future work.
 
 See [architecture](docs/architecture.md), [delivery plan](docs/roadmap.md) and [validation status](docs/validation.md).
+
+### Coverage design and competitive direction
+
+[Coverage Lab](docs/coverage-lab.md) builds reproducible constrained pairwise data in Studio or with `npx tsx src/cli.ts design examples/test-design.json`. No model call is required; data-design coverage remains separate from application proof. The [competitive review and delivery plan](docs/competitive-review.md) compares documented capabilities across 17 tool families and identifies measurable next milestones.

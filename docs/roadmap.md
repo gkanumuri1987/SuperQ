@@ -52,3 +52,7 @@ Promotion remains `eligible-for-human-review` or `blocked`, never certification.
 ## Guided Studio workspace (implemented)
 
 React/Vite local workspace with setup wizard, requirements, visual API/browser test builder, reviewed drafts, shared catalogs, coverage map, real execution/report views, local AI drafts, version comparison, change proposals, manual resolution and recoverable project history. Read-only allowlisted Git monitoring surfaces committed changes/deletions and unknown source impact. Scoped mutations use request tokens and revision checks. See the Studio UX guide for supported workflows and remaining enterprise/native-design increments.
+
+## Competitive review and coverage design (implemented)
+
+See [the primary-source landscape review](competitive-review.md) for the current delivery order and measurable exits. Coverage Lab adds bounded deterministic pairwise datasets, explicit forbidden combinations, feasible-obligation counts, unreachable-value diagnostics, source context, local model persistence and JSON exports. It is available through Studio and CLI, uses no LLM call, and never inflates application coverage. Native tracker sync, semantic knowledge analysis and evaluated intent-to-executable generation remain the next substantial milestones.

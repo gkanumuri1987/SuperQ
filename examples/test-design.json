@@ -1,0 +1,10 @@
+{
+  "title": "Illustrative checkout combinations — replace with reviewed domain rules",
+  "evidence": {"source":"example-only/checkout-design","revision":"illustration-v1","excerpt":"Illustrative model: guest checkout cannot use wallet. Replace with actual application evidence."},
+  "factors": [
+    {"name":"browser","values":["Chromium","Firefox","WebKit"]},
+    {"name":"customer","values":["Guest","Registered"]},
+    {"name":"payment","values":["Card","Wallet"]}
+  ],
+  "forbidden": [{"customer":"Guest","payment":"Wallet"}]
+}

@@ -1,3 +1,4 @@
+import { designPairwise } from "./test-design.js";
 import { readFile, mkdir, writeFile, access } from 'node:fs/promises';
 import { resolve, join, dirname } from 'node:path';
 import { assessPromotion } from './promotion.js';
@@ -18,6 +19,7 @@ import { createReport, writeReports, type ProfileRun } from './reporting.js';
 import { snapshot, changes, loadSnapshot } from './knowledge.js';
 const help=`SuperQ — evidence-driven automation
 
+  design <design.json>                    Generate constrained pairwise test data (no AI call)
   init <project.json>                      Create an editable reference project
   doctor <project.json>                   Validate setup without starting cloud sessions
   plan <project.json> <env> <suite>        Preview selection, dependencies and profiles
@@ -46,6 +48,7 @@ async function main() {
   const {positionals,values}=parseArgs({allowPositionals:true,options:{help:{type:'boolean'},model:{type:'string'},'ollama-url':{type:'string'},reviewer:{type:'string'},'application-revision':{type:'string'},'artifact-digest':{type:'string'},profiles:{type:'string'},workers:{type:'string'},retries:{type:'string'},'max-failures':{type:'string'},tags:{type:'string'},'exclude-tags':{type:'string'},tests:{type:'string'},shard:{type:'string'},formats:{type:'string'},output:{type:'string'},'minimum-automation':{type:'string'},'minimum-proven':{type:'string'},'critical-gaps':{type:'boolean'}}});
   const [command,file,...args]=positionals;
   if(values.help||!command) {console.log(help);return;}
+  if(command==='design'&&file){console.log(JSON.stringify(designPairwise(JSON.parse(await readFile(resolve(file),'utf8'))),null,2));return;}
   if(command==='init'&&file) {const template=await readFile(new URL('../examples/project.json',import.meta.url),'utf8');await writeFile(resolve(file),template,{flag:'wx',mode:0o600});console.log(`Created ${file}. Edit its requirements, tests and environment, then run doctor.`);return;}
   if(command==='snapshot'&&file&&args.length>=2) {const [out,...paths]=args; const result=await snapshot(file,paths); await writeFile(resolve(out!),JSON.stringify(result,null,2),{mode:0o600});console.log(`Saved committed source snapshot ${result.revision}`);return;}
   if(command==='diff'&&file&&args[0]) {console.log(JSON.stringify(changes(await loadSnapshot(file),await loadSnapshot(args[0])),null,2));return;}

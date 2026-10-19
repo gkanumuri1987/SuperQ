@@ -1,3 +1,4 @@
+import { TestDesign, designPairwise } from "./test-design.js";
 import {
   createServer,
   type IncomingMessage,
@@ -36,6 +37,7 @@ import { snapshot, changes, type Snapshot } from "./knowledge.js";
 import { Planning } from "./planning.js";
 export type WorkspaceState = {
   planning?: Planning;
+  testDesign?: TestDesign;
   revision: number;
   sample: boolean;
   sampleVersion?: 1 | 2;
@@ -78,6 +80,7 @@ export async function startWorkspace(
     state = {
       ...raw,
       project: validateProject(raw.project),
+      testDesign: raw.testDesign ? TestDesign.parse(raw.testDesign) : undefined,
       planning: raw.planning ? Planning.parse(raw.planning) : undefined,
     };
     state.runs = state.runs.map((r) =>
@@ -398,7 +401,28 @@ export async function startWorkspace(
           });
           return;
         }
-        if (path === "/api/planning") {
+        if (path === "/api/test-design") {
+          const baseDesign =
+            data.baseDesign === null ? null : TestDesign.parse(data.baseDesign);
+          if (
+            JSON.stringify(baseDesign) !==
+            JSON.stringify(state.testDesign ?? null)
+          ) {
+            json(res, 409, {
+              error:
+                "This coverage design changed in another session. Reload before saving; your changes have not been applied.",
+            });
+            return;
+          }
+          const design = TestDesign.parse(data.design);
+          designPairwise(design);
+          state.testDesign = design;
+          state.revision++;
+          activity(
+            "Coverage design saved",
+            "Pairwise data model saved for QE review",
+          );
+        } else if (path === "/api/planning") {
           state.planning = Planning.parse(data.planning);
           state.revision++;
           activity(
@@ -410,6 +434,7 @@ export async function startWorkspace(
         else if (path === "/api/import") {
           change("Project imported", validateProject(data.project));
           state.planning = undefined;
+          state.testDesign = undefined;
           state.sample = false;
           state.plan = null;
           state.sourceSnapshot = undefined;
