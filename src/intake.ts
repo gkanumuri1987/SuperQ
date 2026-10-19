@@ -500,6 +500,20 @@ export function discover(
       );
     }
   }
+  if (snapshot?.discovery?.scope) {
+    const paths = new Set(snapshot.files.map((f) => f.path));
+    questions.push(
+      `Focused module: ${snapshot.discovery.scope.module}. Confirm integrations and shared-document relevance; other modules have not been analyzed.`,
+    );
+    for (const candidate of candidates) {
+      if (!candidate.evidence.some((e) => paths.has(e.source))) {
+        candidate.selected = false;
+        candidate.questions.push(
+          "No evidence linked to the active module context. Confirm scope before selecting this case.",
+        );
+      }
+    }
+  }
   if (candidates.length > 500)
     throw new Error(
       "Limit intake to 500 candidates per plan; split the source inventory.",

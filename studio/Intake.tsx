@@ -1,3 +1,4 @@
+import ModuleAnalysis from "./ModuleAnalysis";
 import Assistance from "./Assistance";
 import type { Recording } from "../src/recorder";
 import { useState, useEffect, useRef } from "react";
@@ -118,6 +119,11 @@ export default function Intake({
               : "Choose where to run and see what passed or needs attention."}
         </p>
       </div>
+      {state.sourceSnapshot?.discovery?.scope && (
+        <p className="intake-badge">
+          Active module: {state.sourceSnapshot.discovery.scope.module}
+        </p>
+      )}
       <nav className="intake-progress" aria-label="Workflow stages">
         {["Connect", "Review tests", "Run"].map((label, index) => (
           <button
@@ -279,6 +285,14 @@ export default function Intake({
             </button>
           </form>
         )}
+        {state.sourceSnapshot?.discovery?.inventory && (
+          <ModuleAnalysis
+            key={`${state.sourceSnapshot.revision}:${JSON.stringify(state.sourceSnapshot.discovery.scope)}`}
+            snapshot={state.sourceSnapshot}
+            pending={pending}
+            action={act}
+          />
+        )}
         {state.sourceSnapshot?.discovery && (
           <details className="intake-candidate">
             <summary>
@@ -310,9 +324,9 @@ export default function Intake({
               Not included ({state.sourceSnapshot.discovery.skipped.length})
             </h3>
             <p>
-              For remaining modules, reconnect with automatic discovery turned
-              off and select a focused set of files. PDF, Word and binary
-              documents need a committed text export.
+              Use Focus on a module to load another area and its supporting
+              documentation. PDF, Word and binary documents need a committed
+              text export.
             </p>
             <ul>
               {state.sourceSnapshot.discovery.skipped.map((f) => (

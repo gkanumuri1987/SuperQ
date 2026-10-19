@@ -78,6 +78,7 @@ import { createAdapters } from "./adapters.js";
 import { createReport, writeReports, type Report } from "./reporting.js";
 import { Planner } from "./ai.js";
 import { ollamaProvider } from "./ollama.js";
+import { ModuleScope } from "./module-scope.js";
 import { discoverRepository } from "./repository-discovery.js";
 import { snapshot, changes, type Snapshot } from "./knowledge.js";
 import { Planning } from "./planning.js";
@@ -102,6 +103,7 @@ export type WorkspaceState = {
     localRepository: string;
     paths: string[];
     autoDiscover?: boolean;
+    analysisScope?: ModuleScope;
     watch: boolean;
     lastChecked?: string;
     lastError?: string;
@@ -277,7 +279,10 @@ export async function startWorkspace(
         throw new Error("Wait for the active run to finish before scanning");
       const previous = state.sourceSnapshot;
       const next = state.connections.autoDiscover
-        ? await discoverRepository(state.connections.localRepository)
+        ? await discoverRepository(
+            state.connections.localRepository,
+            state.connections.analysisScope,
+          )
         : await snapshot(
             state.connections.localRepository,
             state.connections.paths,
@@ -738,6 +743,7 @@ export async function startWorkspace(
             sources: state.sourceSnapshot
               ? {
                   revision: state.sourceSnapshot.revision,
+                  analysisScope: state.sourceSnapshot.discovery?.scope,
                   files: state.sourceSnapshot.files.map((f) => ({
                     path: f.path,
                     hash: f.hash,
@@ -1462,11 +1468,50 @@ export async function startWorkspace(
             localRepository: input.localRepository,
             paths: sources.files.map((f) => f.path),
             autoDiscover: input.autoDiscover,
+            analysisScope: undefined,
             lastChecked: new Date().toISOString(),
           };
           delete state.connections.lastError;
           state.sourceSnapshot = sources;
           state.sourceAlerts = [];
+        } else if (path === "/api/intake/focus") {
+          const input = z
+            .object({
+              scope: ModuleScope.nullable(),
+              sourceRevision: z.string(),
+            })
+            .parse(data);
+          if (!state.connections.localRepository || !state.sourceSnapshot)
+            throw new Error("Connect a repository first.");
+          if (input.sourceRevision !== state.sourceSnapshot.revision)
+            throw new Error(
+              "Repository evidence changed. Refresh the module selection.",
+            );
+          const startingRevision = state.revision;
+          const sources = await discoverRepository(
+            state.connections.localRepository,
+            input.scope ?? undefined,
+          );
+          if (
+            state.revision !== startingRevision ||
+            sources.revision !== input.sourceRevision
+          )
+            throw new Error(
+              "Repository or workspace changed. Rescan before choosing a module.",
+            );
+          state.sourceSnapshot = sources;
+          state.connections.autoDiscover = true;
+          state.connections.analysisScope = input.scope ?? undefined;
+          state.connections.paths = sources.files.map((f) => f.path);
+          state.connections.lastChecked = new Date().toISOString();
+          delete state.connections.lastError;
+          state.revision++;
+          activity(
+            "Analysis scope selected",
+            input.scope
+              ? `Focused on ${input.scope.module}. Review the new plan before generating automation.`
+              : "Restored repository overview context.",
+          );
         } else if (path === "/api/intake/analyze") {
           state.intake = discover(
             state.project,
@@ -1679,6 +1724,7 @@ export async function startWorkspace(
             ...state.connections,
             ...input,
             autoDiscover: false,
+            analysisScope: undefined,
           };
           state.sourceSnapshot = undefined;
           state.plan = null;

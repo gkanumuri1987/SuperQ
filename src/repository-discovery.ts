@@ -2,10 +2,13 @@ import { execFileSync } from "node:child_process";
 import { realpath } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { z } from "zod";
+import { ScopeFile, ModuleScope, previewModule } from "./module-scope.js";
 import type { Snapshot } from "./knowledge.js";
 
 export const Discovery = z.object({
   trackedFiles: z.number(),
+  inventory: z.array(ScopeFile).optional(),
+  scope: ModuleScope.optional(),
   included: z.array(
     z.object({ path: z.string(), kind: z.enum(["documentation", "source"]) }),
   ),
@@ -35,6 +38,7 @@ function kind(path: string): "documentation" | "source" | undefined {
 /** Inventory committed paths first. Never follow repository instructions or external links. */
 export async function discoverRepository(
   repo: string,
+  scope?: ModuleScope,
 ): Promise<Snapshot & { discovery: Discovery }> {
   const root = await realpath(repo);
   const git = (args: string[], maxBuffer = 16 * 1024 * 1024) =>
@@ -54,8 +58,29 @@ export async function discoverRepository(
         size: Number(size),
       };
     });
+  const inventory = entries
+    .filter(
+      (e) =>
+        !sensitive.test(e.path) &&
+        !ignored.test(e.path) &&
+        e.type === "blob" &&
+        e.mode !== "120000" &&
+        kind(e.path),
+    )
+    .map((e) => ({ path: e.path, kind: kind(e.path)!, bytes: e.size }));
+  const preview = scope ? previewModule(inventory, scope) : undefined;
+  if (preview && !preview.included.some((f) => f.kind === "source"))
+    throw new Error(
+      "This module has no source files within the analysis budget. Choose a smaller module or explicit files.",
+    );
+  const focusedPaths = preview
+    ? new Set(preview.included.map((f) => f.path))
+    : undefined;
+  const deferredPaths = new Set(preview?.deferred.map((f) => f.path));
   const discovery: Discovery = {
     trackedFiles: entries.length,
+    inventory,
+    scope,
     included: [],
     skipped: [],
     contentBytes: 0,
@@ -71,20 +96,25 @@ export async function discoverRepository(
   );
   for (const entry of entries) {
     const category = kind(entry.path);
-    let reason = sensitive.test(entry.path)
-      ? "Sensitive filename"
-      : ignored.test(entry.path)
-        ? "Dependency or generated file"
-        : entry.type !== "blob" || entry.mode === "120000"
-          ? "Symlink or submodule"
-          : !category
-            ? "Unsupported format"
-            : entry.size > 256000
-              ? "File exceeds size limit"
-              : files.length >= 100 ||
-                  discovery.contentBytes + entry.size > discovery.byteLimit
-                ? "Outside initial analysis budget; select a focused scope"
-                : "";
+    let reason =
+      focusedPaths && !focusedPaths.has(entry.path)
+        ? deferredPaths.has(entry.path)
+          ? "Outside module analysis budget; choose a smaller module"
+          : "Outside selected module and documentation"
+        : sensitive.test(entry.path)
+          ? "Sensitive filename"
+          : ignored.test(entry.path)
+            ? "Dependency or generated file"
+            : entry.type !== "blob" || entry.mode === "120000"
+              ? "Symlink or submodule"
+              : !category
+                ? "Unsupported format"
+                : entry.size > 256000
+                  ? "File exceeds size limit"
+                  : files.length >= 100 ||
+                      discovery.contentBytes + entry.size > discovery.byteLimit
+                    ? "Outside initial analysis budget; select a focused scope"
+                    : "";
     if (!reason) {
       const content = git(["cat-file", "blob", entry.oid], 256000);
       if (content.includes("\0") || content.includes("\uFFFD"))
