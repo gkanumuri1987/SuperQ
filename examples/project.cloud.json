@@ -1,0 +1,266 @@
+{
+  "name": "SuperQ reference project",
+  "evidence": [
+    {
+      "id": "DOC-1",
+      "source": "examples/requirements.md",
+      "revision": "reference-v1",
+      "excerpt": "GET /health returns HTTP 200 and {status: ok}. The health page shows Service healthy."
+    }
+  ],
+  "requirements": [
+    {
+      "id": "REQ-HEALTH",
+      "title": "API health contract",
+      "risk": "critical",
+      "evidenceIds": [
+        "DOC-1"
+      ],
+      "criteria": [
+        {
+          "id": "AC-HTTP",
+          "title": "Health response has status 200"
+        },
+        {
+          "id": "AC-BODY",
+          "title": "Health body status is ok"
+        }
+      ]
+    },
+    {
+      "id": "REQ-WEB",
+      "title": "Visible health status",
+      "risk": "high",
+      "evidenceIds": [
+        "DOC-1"
+      ],
+      "criteria": [
+        {
+          "id": "AC-VISIBLE",
+          "title": "Page shows Service healthy"
+        }
+      ]
+    },
+    {
+      "id": "REQ-DATA",
+      "title": "Database reconciliation pending specification",
+      "risk": "high",
+      "evidenceIds": [
+        "DOC-1"
+      ]
+    }
+  ],
+  "catalog": [
+    {
+      "id": "health-request",
+      "kind": "api",
+      "operation": "request",
+      "description": "Shared HTTP request adapter"
+    },
+    {
+      "id": "health-page",
+      "kind": "web",
+      "operation": "journey",
+      "description": "Shared browser journey adapter"
+    }
+  ],
+  "locators": {
+    "health-status": {
+      "strategy": "testId",
+      "value": "health-status"
+    }
+  },
+  "tests": [
+    {
+      "id": "TC-API",
+      "title": "Health endpoint is operational",
+      "origin": "qe",
+      "status": "approved",
+      "requirementIds": [
+        "REQ-HEALTH"
+      ],
+      "evidenceIds": [
+        "DOC-1"
+      ],
+      "suites": [
+        "smoke",
+        "regression"
+      ],
+      "steps": [
+        {
+          "action": "health-request",
+          "input": {
+            "path": "/health"
+          },
+          "assertions": [
+            {
+              "path": "status",
+              "operator": "equals",
+              "expected": 200
+            },
+            {
+              "path": "body.status",
+              "operator": "equals",
+              "expected": "ok"
+            }
+          ]
+        }
+      ],
+      "tags": [
+        "smoke",
+        "api"
+      ],
+      "retrySafe": true,
+      "covers": {
+        "REQ-HEALTH": [
+          "AC-HTTP",
+          "AC-BODY"
+        ]
+      }
+    },
+    {
+      "id": "TC-WEB",
+      "title": "Health page presents service state",
+      "origin": "qe",
+      "status": "approved",
+      "requirementIds": [
+        "REQ-WEB"
+      ],
+      "evidenceIds": [
+        "DOC-1"
+      ],
+      "suites": [
+        "browser",
+        "regression"
+      ],
+      "steps": [
+        {
+          "action": "health-page",
+          "input": {
+            "commands": [
+              {
+                "type": "goto",
+                "path": "/"
+              },
+              {
+                "type": "expectText",
+                "locator": "health-status",
+                "value": "Service healthy",
+                "timeoutMs": 5000
+              }
+            ]
+          },
+          "assertions": [
+            {
+              "path": "text.health-status",
+              "operator": "equals",
+              "expected": "Service healthy"
+            }
+          ]
+        }
+      ],
+      "tags": [
+        "smoke",
+        "web"
+      ],
+      "retrySafe": true,
+      "covers": {
+        "REQ-WEB": [
+          "AC-VISIBLE"
+        ]
+      }
+    },
+    {
+      "id": "TC-DATA-DRAFT",
+      "title": "Reconcile source and warehouse totals",
+      "origin": "ai",
+      "status": "draft",
+      "requirementIds": [
+        "REQ-DATA"
+      ],
+      "evidenceIds": [
+        "DOC-1"
+      ],
+      "suites": [
+        "data"
+      ],
+      "blockedBy": [
+        "Need business reconciliation rule and source evidence"
+      ],
+      "steps": []
+    }
+  ],
+  "data": {
+    "tenant": "reference"
+  },
+  "environments": {
+    "local": {
+      "baseURL": "http://127.0.0.1:4173",
+      "data": {}
+    }
+  },
+  "suites": {
+    "smoke": {
+      "data": {}
+    },
+    "browser": {
+      "data": {}
+    },
+    "data": {
+      "data": {}
+    },
+    "regression": {
+      "data": {}
+    }
+  },
+  "browsers": {
+    "local": {
+      "provider": "local",
+      "browser": "chromium"
+    },
+    "firefox": {
+      "provider": "local",
+      "browser": "firefox"
+    },
+    "webkit": {
+      "provider": "local",
+      "browser": "webkit"
+    },
+    "chrome": {
+      "provider": "local",
+      "browser": "chrome"
+    },
+    "edge": {
+      "provider": "local",
+      "browser": "edge"
+    },
+    "bs-chrome": {
+      "provider": "browserstack",
+      "browser": "chrome",
+      "os": "Windows",
+      "osVersion": "11",
+      "maxSessions": 2,
+      "build": "SuperQ pilot"
+    },
+    "lt-edge": {
+      "provider": "lambdatest",
+      "browser": "edge",
+      "platform": "Windows 11",
+      "maxSessions": 2,
+      "build": "SuperQ pilot"
+    }
+  },
+  "execution": {
+    "workers": 1,
+    "retries": 0,
+    "failOnFlaky": true
+  },
+  "reporting": {
+    "formats": [
+      "json",
+      "html",
+      "junit",
+      "markdown"
+    ]
+  }
+}

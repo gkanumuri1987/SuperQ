@@ -1,0 +1,96 @@
+import { WebSetup, SetupIds } from "./web-commands.js";
+import { Environment } from './environment.js';
+import { z } from 'zod';
+import { BrowserProfile, Execution, Reporting } from './config.js';
+import { ReleasePolicy, Revision } from './release-policy.js';
+const id = z.string().min(1);
+export const Evidence = z.object({ id, source: z.string().min(1), revision: z.string().min(1), excerpt: z.string().min(1), applicationRevision:Revision.optional() }).strict();
+export const Assertion = z.object({ path: z.string(), operator: z.enum(['equals', 'contains', 'matches', 'exists']), expected: z.unknown().optional() }).strict().superRefine((a, c) => {
+  if (a.operator !== 'exists' && a.expected === undefined) c.addIssue({code:'custom',message:'Assertion requires expected value'});
+  if (a.operator === 'matches') { try { new RegExp(String(a.expected)); } catch { c.addIssue({code:'custom',message:'Invalid assertion regex'}); } }
+});
+export const Step = z.object({ save: z.record(z.string(), z.string().min(1)).default({}), action: id, input: z.record(z.string(), z.unknown()).default({}), assertions: z.array(Assertion).default([]) }).strict();
+export const Project = z.object({
+  name: id,
+  roles: z.record(z.string(),z.object({description:z.string()}).strict()).optional(),
+  evidence: z.array(Evidence).default([]),
+  requirements: z.array(z.object({ id, title: id, risk: z.enum(['critical','high','medium','low']), criteria:z.array(z.object({id,title:id}).strict()).default([]), evidenceIds: z.array(id).min(1) }).strict()),
+  catalog: z.array(z.object({ id, kind: z.enum(['api','web','postgres','mongo','snowflake','custom']), operation: id, description: id }).strict()),
+  locators: z.record(z.string(), z.object({ strategy: z.enum(['role','label','testId','text']), value: id, name: z.string().optional() }).strict()).default({}),
+  tests: z.array(z.object({ id, title: id, role:id.optional(), user:id.optional(), anonymous:z.boolean().optional(), origin: z.enum(['qe','ai']), status: z.enum(['draft','approved']), review:z.object({reviewer:id,at:z.iso.datetime(),digest:z.string().regex(/^[a-f0-9]{64}$/).optional()}).strict().optional(), covers:z.record(z.string(),z.array(id)).default({}), requirementIds: z.array(id).min(1), evidenceIds: z.array(id).min(1), suites: z.array(id).min(1), tags: z.array(id).default([]), retrySafe: z.boolean().default(false), dependsOn: z.array(id).default([]), blockedBy: z.array(id).default([]), data: z.record(z.string(), z.unknown()).default({}), steps: z.array(Step).default([]) }).strict()),
+  webSetups: z.record(z.string().regex(/^[a-zA-Z][\w.-]{0,79}$/),WebSetup).optional(),
+  healing: z.object({enabled:z.boolean().default(false),waitMs:z.number().int().min(50).max(5000).default(1000),locators:z.record(z.string(),z.array(z.string().min(1)).min(1).max(3)).default({})}).strict().optional(),
+  release: ReleasePolicy.optional(),
+  browsers: z.record(z.string(), BrowserProfile).default({local: BrowserProfile.parse({provider:"local"})}),
+  execution: Execution.default(Execution.parse({})),
+  reporting: Reporting.default(Reporting.parse({})),
+  data: z.record(z.string(), z.unknown()).default({}),
+  environments: z.record(z.string(), Environment),
+  suites: z.record(z.string(), z.object({ data: z.record(z.string(),z.unknown()).default({}) }).strict()),
+}).strict();
+export type Project = z.infer<typeof Project>;
+export type TestCase = Project['tests'][number];
+export type Step = z.infer<typeof Step>;
+export type Assertion = z.infer<typeof Assertion>;
+export type Attempt = { number: number; status: 'passed'|'failed'; durationMs: number; failedStep?: number; failureKind?: 'action'|'assertion'|'timeout' };
+export const Observation = z.object({ attempt: z.number().int().positive().optional(), step: z.number().int().positive(), setupId: z.string().optional(), command: z.number().int().positive().optional(), operation: z.string(), status: z.enum(['passed','failed']), locator: z.string().optional(), replacement: z.string().optional(), assertionPath: z.string().optional(), issue: z.enum(['navigation-failed','control-unavailable','ambiguous-control','interaction-failed','expectation-failed','assertion-failed']).optional() }).strict();
+export type Observation = z.infer<typeof Observation>;
+export const ResultSchema=z.object({id,healed:z.boolean().optional(),observations:z.array(Observation).optional(),diagnosticsTruncated:z.boolean().optional(),status:z.enum(['passed','failed','blocked','skipped']),durationMs:z.number().finite().nonnegative(),reason:z.string().optional(),flaky:z.boolean().optional(),dependency:z.boolean().optional(),attempts:z.array(z.object({number:z.number().int().positive(),status:z.enum(['passed','failed']),durationMs:z.number().finite().nonnegative(),failedStep:z.number().int().nonnegative().optional(),failureKind:z.enum(['action','assertion','timeout']).optional()}).strict()).optional()}).strict();
+export type Result = { id: string; healed?: boolean; observations?: Observation[]; diagnosticsTruncated?: boolean; status: 'passed'|'failed'|'blocked'|'skipped'; durationMs: number; reason?: string; attempts?: Attempt[]; flaky?: boolean; dependency?: boolean };
+
+export function isHealed(result: Pick<Result,"healed"|"observations">) {return Boolean(result.healed||result.observations?.some(o=>o.operation==='web.heal'&&o.status==='passed'));}
+
+export function validateProject(raw: unknown): Project {
+  const p = Project.parse(raw);
+  const unique = (values: string[], label: string) => { if (new Set(values).size !== values.length) throw new Error(`Duplicate ${label}`); };
+  unique(p.requirements.map(x=>x.id),'requirement ID'); unique(p.tests.map(x=>x.id),'test ID');
+  unique(p.evidence.map(x=>x.id),'evidence ID'); unique(p.catalog.map(x=>x.id),'action ID');
+  unique(p.catalog.map(x=>`${x.kind}:${x.operation}`),'catalog operation: reuse existing action');
+  unique(Object.values(p.webSetups??{}).map(s=>JSON.stringify(s.commands)),'web setup: reuse existing setup');
+  unique(Object.values(p.locators).map(x=>JSON.stringify([x.strategy,x.value,x.name])),'locator: reuse existing locator');
+  for(const [original,alternatives] of Object.entries(p.healing?.locators??{})) {
+    if(!Object.hasOwn(p.locators,original)||alternatives.some(id=>!Object.hasOwn(p.locators,id)||id===original)||new Set(alternatives).size!==alternatives.length)throw new Error('Healing alternatives must reference distinct existing catalog locators');
+  }
+  for(const env of Object.values(p.environments)){const url=new URL(env.baseURL);if(!['http:','https:'].includes(url.protocol)||url.username||url.password) throw new Error('Environment requires an HTTP(S) URL without embedded credentials');}
+  for(const suite of Object.values(p.suites))if(Object.keys(suite.data).some(k=>k.startsWith('user.')||k.startsWith('url.')))throw new Error('user.* and url.* are reserved runtime values');
+  for(const [name,env] of Object.entries(p.environments)) {
+    if(Object.keys(env.urls??{}).some(k=>['web','api'].includes(k)))throw new Error('web and api URL aliases are reserved');
+    for(const raw of [env.baseURL,env.apiURL,...Object.values(env.urls??{})].filter((x):x is string=>!!x)){const u=new URL(raw);if(!['http:','https:'].includes(u.protocol)||u.username||u.password)throw new Error('Environment URLs require HTTP(S) without embedded credentials');}
+    for(const user of Object.values(env.users??{}))if(!Object.hasOwn(p.roles??{},user.role))throw new Error(`Unknown account role in ${name}`);
+    if(env.defaultUser&&!Object.hasOwn(env.users??{},env.defaultUser))throw new Error(`Unknown default user in ${name}`);
+    for(const suite of Object.keys(env.suiteData??{}))if(!Object.hasOwn(p.suites,suite))throw new Error(`Unknown environment suite ${suite}`);
+    for(const id of Object.keys(env.testData??{}))if(!p.tests.some(t=>t.id===id))throw new Error(`Unknown environment test ${id}`);
+    if(env.sso&&env.login)throw new Error('Choose SSO session reuse or form login for an environment');
+    if(env.sso){for(const path of [env.sso.startPath,env.sso.successPath])if(new URL(path,env.baseURL).origin!==new URL(env.baseURL).origin)throw new Error('SSO start/success paths must belong to the application');
+    for(const raw of env.sso.allowedOrigins){const u=new URL(raw);if(raw!==u.origin||!['http:','https:'].includes(u.protocol)||u.username||u.password)throw new Error('Provider origins must be exact HTTP(S) origins');}}
+    if(env.login)for(const path of [env.login.path,env.login.successPath])if(new URL(path,env.baseURL).origin!==new URL(env.baseURL).origin||new URL(path,env.baseURL).username||new URL(path,env.baseURL).password)throw new Error('Login paths must stay within the web application');
+    for(const values of [p.data,env.data,...Object.values(env.suiteData??{}),...Object.values(env.testData??{})])if(Object.keys(values).some(k=>k.startsWith('user.')||k.startsWith('url.')))throw new Error('user.* and url.* are reserved runtime values');
+  }
+  if(!Object.keys(p.browsers).length) throw new Error('At least one browser profile required');
+  const evidence = new Set(p.evidence.map(x=>x.id)); const reqs = new Set(p.requirements.map(x=>x.id));
+  const tests = new Map(p.tests.map(x=>[x.id,x])); const actions = new Set(p.catalog.map(x=>x.id));
+  for (const r of p.requirements) {unique(r.criteria.map(c=>c.id),`criterion ID in ${r.id}`);for (const e of r.evidenceIds) if (!evidence.has(e)) throw new Error(`Unknown evidence ${e}`);}
+  if(p.release){
+    if(!Object.hasOwn(p.environments,p.release.environment))throw new Error('Unknown release environment');
+    unique(p.release.requiredSuites,'release suite');unique(p.release.requiredProfiles,'release profile');unique(p.release.requiredChecks,'release check');unique(p.release.requiredApprovalRoles,'approval role');
+    for(const s of p.release.requiredSuites) if(!Object.hasOwn(p.suites,s)) throw new Error(`Unknown release suite ${s}`);
+    for(const b of p.release.requiredProfiles) if(!Object.hasOwn(p.browsers,b)) throw new Error(`Unknown release profile ${b}`);
+  }
+  for(const setup of Object.values(p.webSetups??{}))for(const c of setup.commands)if('locator' in c&&!Object.hasOwn(p.locators,c.locator))throw new Error(`Unknown setup locator ${c.locator}`);
+  for (const t of p.tests) {
+    if(t.role&&!Object.hasOwn(p.roles??{},t.role))throw new Error('Unknown test role');
+    if(t.anonymous&&(t.role||t.user))throw new Error('Anonymous tests cannot require an account or role');
+    if(Object.keys(t.data).some(k=>k.startsWith('user.')||k.startsWith('url.')))throw new Error('user.* and url.* are reserved runtime values');
+    for(const [req,criteria] of Object.entries(t.covers)){const requirement=p.requirements.find(r=>r.id===req);if(!t.requirementIds.includes(req)||!requirement) throw new Error(`Invalid criterion mapping ${req}`);unique(criteria,'criterion mapping');for(const c of criteria) if(!requirement.criteria.some(x=>x.id===c)) throw new Error(`Unknown criterion ${c}`);}
+    for(const s of t.steps) for(const key of Object.keys(s.save)){if(!/^[a-zA-Z][\w.-]*$/.test(key)||key.startsWith('superq.')||key.startsWith('user.')||key.startsWith('url.')||['__proto__','constructor','prototype'].includes(key)) throw new Error(`Unsafe saved variable ${key}`);}
+    for (const e of t.evidenceIds) if (!evidence.has(e)) throw new Error(`Unknown evidence ${e}`);
+    for (const r of t.requirementIds) if (!reqs.has(r)) throw new Error(`Unknown requirement ${r}`);
+    for (const s of t.suites) if (!Object.hasOwn(p.suites,s)) throw new Error(`Unknown suite ${s}`);
+    for (const d of t.dependsOn) if (!tests.has(d)) throw new Error(`Unknown dependency ${d}`);
+    for(const s of t.steps)if(s.input.setupIds!==undefined){if(!p.catalog.some(a=>a.id===s.action&&a.kind==='web'&&a.operation==='journey'))throw new Error('Web setups require a browser journey');for(const id of SetupIds.parse(s.input.setupIds))if(!Object.hasOwn(p.webSetups??{},id))throw new Error(`Unknown web setup ${id}`);}
+    for (const s of t.steps) if (!actions.has(s.action)) throw new Error(`Unknown action ${s.action}`);
+  }
+  const active = new Set<string>(); const done = new Set<string>();
+  function visit(t: TestCase) { if(active.has(t.id)) throw new Error(`Dependency cycle at ${t.id}`); if(done.has(t.id)) return; active.add(t.id); for(const d of t.dependsOn) visit(tests.get(d)!); active.delete(t.id); done.add(t.id); }
+  p.tests.forEach(visit); return p;
+}

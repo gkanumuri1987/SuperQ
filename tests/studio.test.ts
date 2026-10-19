@@ -1,0 +1,600 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { chromium, expect } from "@playwright/test";
+import { startWorkspace } from "../src/workspace-server.js";
+test("Studio guides setup, change review, test editing and real focused execution; supports mobile navigation", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "superq-studio-"));
+  const app = await startWorkspace({ port: 0, file: join(dir, "state.json") });
+  const browser = await chromium.launch();
+  const page = await browser.newPage({
+    viewport: { width: 1500, height: 1050 },
+  });
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  try {
+    await page.goto(`${app.url}/#overview`);
+    await page.getByRole("button", { name: "More tools", exact: true }).click();
+    await page
+      .getByRole("heading", {
+        name: "A little less effort. A lot more confidence.",
+      })
+      .waitFor();
+    assert.equal(
+      await page
+        .getByText("Interactive sample project", { exact: true })
+        .isVisible(),
+      true,
+    );
+    await page.getByRole("button", { name: /Change inbox/ }).click();
+    await page
+      .getByRole("heading", { name: "Every change, understood." })
+      .waitFor();
+    await page.getByRole("button", { name: /TC-102 Customer sees/ }).click();
+    assert.ok(await page.getByText("checkout.submit", { exact: true }).count());
+    await page
+      .getByRole("button", { name: "Stage all as drafts", exact: true })
+      .click();
+    let dialog = page.getByRole("dialog");
+    await dialog
+      .getByRole("button", { name: "Stage as draft", exact: true })
+      .click();
+    await dialog.waitFor({ state: "hidden" });
+    const state = await (await fetch(`${app.url}/api/workspace`)).json();
+    assert.equal(state.project.tests[0].status, "draft");
+    assert.ok(
+      state.plan.items.every((i: { status: string }) => i.status === "staged"),
+    );
+    await page
+      .getByRole("button", { name: "Test library", exact: true })
+      .click();
+    await page.getByRole("button", { name: /TC-101 Place an order/ }).click();
+    dialog = page.getByRole("dialog");
+    await dialog
+      .getByText("Record a human review of the saved version", { exact: true })
+      .click();
+    await dialog
+      .getByLabel("Reviewer name", { exact: true })
+      .fill("Fixture reviewer");
+    await dialog
+      .getByRole("button", { name: "Record review of saved test", exact: true })
+      .click();
+    await dialog.waitFor({ state: "hidden" });
+    await page.getByRole("button", { name: /TC-101 Place an order/ }).click();
+    dialog = page.getByRole("dialog");
+    await dialog.getByRole("button", { name: "Code", exact: true }).click();
+    const editor = dialog.getByLabel(/Advanced test definition/);
+    const definition = JSON.parse(await editor.inputValue());
+    definition.title = "Updated checkout intent";
+    await editor.fill(JSON.stringify(definition));
+    await dialog
+      .getByRole("button", { name: "Save test as draft", exact: true })
+      .click();
+    await dialog.waitFor({ state: "hidden" });
+    await page.getByText("Updated checkout intent", { exact: true }).waitFor();
+    await page
+      .getByRole("button", { name: "Create a test", exact: true })
+      .click();
+    dialog = page.getByRole("dialog");
+    await dialog
+      .getByLabel("What should this test prove?", { exact: true })
+      .fill("Inventory remains available");
+    await dialog
+      .getByLabel("Requirement", { exact: true })
+      .selectOption("REQ-104");
+    await dialog
+      .getByLabel("Inventory availability matches the catalog", { exact: true })
+      .check();
+    await dialog
+      .getByRole("button", { name: "Add a reusable action", exact: true })
+      .click();
+    assert.equal(
+      await dialog.getByLabel("Request path", { exact: true }).inputValue(),
+      "api/inventory",
+    );
+    await dialog
+      .getByText("Advanced action inputs (JSON)", { exact: true })
+      .click();
+    await dialog.getByLabel(/Action inputs/).fill("{invalid");
+    await expect(
+      dialog.getByRole("button", { name: "Save test as draft", exact: true }),
+    ).toBeDisabled();
+    await dialog.getByLabel(/Action inputs/).fill('{"path":"api/inventory"}');
+    await dialog
+      .getByRole("button", { name: "Save test as draft", exact: true })
+      .click();
+    await dialog.waitFor({ state: "hidden" });
+    await page
+      .getByText("Inventory remains available", { exact: true })
+      .waitFor();
+    await page
+      .getByRole("button", { name: "Runs & reports", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Run a suite", exact: true })
+      .click();
+    dialog = page.getByRole("dialog");
+    await dialog.getByLabel(/TC-105 · Verify available inventory/).check();
+    await dialog
+      .getByRole("button", { name: "Start run", exact: true })
+      .click();
+    await dialog.waitFor({ state: "hidden" });
+    await page
+      .getByRole("link", { name: "Open report", exact: true })
+      .first()
+      .waitFor({ timeout: 15000 });
+    await expect(
+      page
+        .getByRole("region", { name: "Test execution totals" })
+        .getByRole("button", { name: "1 Passed", exact: true }),
+    ).toBeVisible();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page
+      .getByRole("button", { name: "Open navigation", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Coverage map", exact: true })
+      .click();
+    await page
+      .getByRole("heading", { name: "Coverage with context." })
+      .waitFor();
+    assert.equal(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+      true,
+    );
+    assert.deepEqual(errors, []);
+  } finally {
+    await browser.close();
+    await app.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("Studio imports sprint intake and preserves executable coverage", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "superq-intake-"));
+  const app = await startWorkspace({ port: 0, file: join(dir, "state.json") });
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    await page.goto(`${app.url}/#planning`);
+    await page
+      .getByRole("heading", {
+        name: "Test intake & sprint planning",
+        exact: true,
+      })
+      .waitFor();
+    const before = await (await fetch(`${app.url}/api/workspace`)).json();
+    const payload = {
+      team: "Payments QE",
+      sprint: "Sprint 42",
+      cases: [
+        {
+          source: "ADO",
+          externalId: "100",
+          revision: "1",
+          title: "Historical payment",
+          featureIds: ["unknown"],
+          steps: [{ action: "Pay", expected: "Confirmed" }],
+          dependsOn: ["ADO:missing"],
+        },
+      ],
+    };
+    await page
+      .getByLabel("Planning package JSON")
+      .fill(JSON.stringify(payload));
+    await page.getByRole("button", { name: "Save & review intake" }).click();
+    await page.getByText("Payments QE · Sprint 42", { exact: true }).waitFor();
+    await page
+      .getByRole("heading", { name: "ADO:100 · Historical payment" })
+      .waitFor();
+    assert.ok(
+      await page.getByText(/Import the missing prerequisite/).isVisible(),
+    );
+    const after = await (await fetch(`${app.url}/api/workspace`)).json();
+    assert.equal(after.planning.cases[0].externalId, "100");
+    assert.deepEqual(after.project, before.project);
+    assert.deepEqual(after.coverage, before.coverage);
+    await page.reload();
+    await page.getByText("Payments QE · Sprint 42", { exact: true }).waitFor();
+  } finally {
+    await browser.close();
+    await app.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("Coverage Lab generates constrained data, saves the model and keeps proof unchanged", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "superq-design-"));
+  const file = join(dir, "state.json");
+  const app = await startWorkspace({ port: 0, file });
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage({
+      viewport: { width: 1440, height: 1000 },
+    });
+    await page.goto(`${app.url}/#design`);
+    await page
+      .getByRole("heading", { name: "Coverage Lab", exact: true })
+      .waitFor();
+    const before = await (await fetch(`${app.url}/api/workspace`)).json();
+    await page.getByLabel("Source document or story").fill("ED/checkout");
+    await page.getByLabel("Source revision").fill("7");
+    await page
+      .getByLabel("Relevant rule or excerpt")
+      .fill("Checkout supports browser, customer and payment combinations.");
+    await page
+      .getByLabel("Forbidden combinations")
+      .fill('[{"customer":"Guest","payment":"Wallet"}]');
+    await page.getByRole("button", { name: "Generate pairwise data" }).click();
+    await page.getByRole("heading", { name: "Review your dataset" }).waitFor();
+    assert.ok((await page.locator("tbody tr").count()) < 9);
+    await page
+      .getByRole("button", { name: "Save design", exact: true })
+      .click();
+    await page.getByText("Coverage design saved", { exact: true }).waitFor();
+    const after = await (await fetch(`${app.url}/api/workspace`)).json();
+    assert.equal(after.testDesign.evidence.revision, "7");
+    const stale = await fetch(`${app.url}/api/test-design`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-superq-token": after.token,
+      },
+      body: JSON.stringify({
+        revision: after.revision,
+        baseDesign: null,
+        design: { ...after.testDesign, title: "Stale overwrite" },
+      }),
+    });
+    assert.equal(stale.status, 409);
+    assert.deepEqual(after.project, before.project);
+    assert.deepEqual(after.coverage, before.coverage);
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Export model & data" }).click();
+    assert.equal(
+      (await download).suggestedFilename(),
+      "superq-pairwise-design.json",
+    );
+    await page.reload();
+    await expect(page.getByLabel("Source revision")).toHaveValue("7");
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForFunction(
+      () =>
+        document.querySelector(".sidebar")!.getBoundingClientRect().right <= 0,
+    );
+    assert.equal(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+      true,
+    );
+  } finally {
+    await browser.close();
+    await app.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("simple start creates and tries API and screen checks without catalog or JSON setup", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "superq-simple-"));
+  const app = await startWorkspace({ port: 0, file: join(dir, "state.json") });
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    await page.goto(app.url);
+    await page
+      .getByRole("heading", { name: "What would you like to test?" })
+      .waitFor();
+    assert.equal(
+      await page
+        .getByRole("button", { name: "Coverage Lab", exact: true })
+        .count(),
+      0,
+    );
+    await page
+      .getByRole("button", { name: "Through an API", exact: true })
+      .click();
+    await page
+      .getByLabel("Functional expectation")
+      .selectOption(JSON.stringify(["REQ-104", "AC-5"]));
+    await page.getByLabel("API path", { exact: true }).fill("api/inventory");
+    await page.getByLabel("Response field", { exact: true }).fill("available");
+    await page.getByLabel("Expected value", { exact: true }).fill("true");
+    const creation = page.waitForResponse((r) =>
+      r.url().endsWith("/api/quick-test"),
+    );
+    await page.getByRole("button", { name: "Create functional test" }).click();
+    const createdResponse = await creation;
+    assert.equal(createdResponse.status(), 200, await createdResponse.text());
+    await page
+      .getByRole("heading", { name: "Your test is ready to try." })
+      .waitFor();
+    await page
+      .getByRole("button", { name: "Try this test", exact: true })
+      .click();
+    await page.getByText("The check passed", { exact: true }).waitFor();
+    let state = await (await fetch(`${app.url}/api/workspace`)).json();
+    let t = state.project.tests.at(-1);
+    assert.equal(t.status, "draft");
+    assert.equal(t.review, undefined);
+    assert.equal(state.runs[0].draftValidation, true);
+    assert.equal(state.runs[0].report.results[0].status, "passed");
+    await page.getByRole("button", { name: "Add another test" }).click();
+    await page
+      .getByRole("button", { name: "On a screen", exact: true })
+      .click();
+    await page
+      .getByLabel("Functional expectation")
+      .selectOption(JSON.stringify(["REQ-101", "AC-2"]));
+    await page.getByLabel("Page path", { exact: true }).fill("checkout");
+    await page.getByLabel("Button to click (optional)").fill("Place order");
+    await page
+      .getByLabel("Expected text", { exact: true })
+      .fill("Order confirmed");
+
+    const secondCreation = page.waitForResponse((r) =>
+      r.url().endsWith("/api/quick-test"),
+    );
+    await page.getByRole("button", { name: "Create functional test" }).click();
+    const secondResponse = await secondCreation;
+    assert.equal(secondResponse.status(), 200, await secondResponse.text());
+    await page
+      .getByRole("heading", { name: "Your test is ready to try." })
+      .waitFor();
+    await page
+      .getByRole("button", { name: "Try this test", exact: true })
+      .click();
+    await page.getByText("The check passed", { exact: true }).waitFor();
+    state = await (await fetch(`${app.url}/api/workspace`)).json();
+    t = state.project.tests.at(-1);
+    assert.equal(t.status, "draft");
+    assert.equal(state.runs[0].report.results[0].id, t.id);
+    assert.equal(state.runs[0].report.results[0].status, "passed");
+    await page.getByRole("button", { name: "More tools", exact: true }).click();
+    assert.ok(
+      await page
+        .getByRole("button", { name: "Coverage Lab", exact: true })
+        .isVisible(),
+    );
+  } finally {
+    await browser.close();
+    await app.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("environment setup configures scoped accounts, typed data and URLs; simple automation sends the selected account", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "superq-env-ui-"));
+  const app = await startWorkspace({ port: 0, file: join(dir, "state.json") });
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    await page.goto(`${app.url}/#environments`);
+    await page
+      .getByRole("heading", { name: "Environments & test accounts" })
+      .waitFor();
+    await page.getByText("Application roles (0)", { exact: true }).click();
+    await page.getByLabel("New role name").fill("customer");
+    await page.getByRole("button", { name: "Add role", exact: true }).click();
+    await page.getByLabel("New environment name").fill("qa");
+    await page
+      .getByRole("button", { name: "Add environment", exact: true })
+      .click();
+    await page
+      .getByLabel("Web application URL", { exact: true })
+      .fill("https://qa.example.invalid/");
+    await page
+      .getByLabel("API base URL (optional)")
+      .fill(`${app.url}/sample-app/`);
+    await page.getByLabel("New account name").fill("buyer");
+    await page
+      .getByRole("button", { name: "Add account", exact: true })
+      .click();
+    await page.getByLabel("Username for buyer").fill("qa-buyer");
+    await page.getByLabel("Default account for qa").selectOption("buyer");
+    await page
+      .getByRole("button", { name: "Add test data", exact: true })
+      .click();
+    await page.getByLabel("Data name 1").fill("available");
+    await page.getByLabel("Data value 1").fill("true");
+    await page.getByRole("button", { name: "Save environment setup" }).click();
+    await page.getByText("Environment setup saved", { exact: true }).waitFor();
+    let state = await (await fetch(`${app.url}/api/workspace`)).json();
+    assert.equal(state.project.environments.qa.data.available, true);
+    assert.equal(state.project.environments.qa.users.buyer.role, "customer");
+    assert.equal(
+      state.project.environments.qa.apiURL,
+      `${app.url}/sample-app/`,
+    );
+    // A second edit must survive schema normalization and key ordering.
+    await page.getByLabel("Username for buyer").fill("qa-buyer-updated");
+    const saved = page.waitForResponse((r) =>
+      r.url().endsWith("/api/environments"),
+    );
+    await page.getByRole("button", { name: "Save environment setup" }).click();
+    assert.equal((await saved).status(), 200);
+    await page.getByRole("button", { name: "Automate", exact: true }).click();
+    await page
+      .getByLabel("Functional expectation")
+      .selectOption(JSON.stringify(["REQ-104", "AC-5"]));
+    await page
+      .getByLabel("Application role", { exact: true })
+      .selectOption("customer");
+    await page.getByRole("button", { name: "Through an API" }).click();
+    await page.getByLabel("API path", { exact: true }).fill("api/inventory");
+    await page.getByLabel("Response field", { exact: true }).fill("available");
+    await page
+      .getByLabel("Expected value", { exact: true })
+      .fill("${available}");
+    await page.getByRole("button", { name: "Create functional test" }).click();
+    await page
+      .getByRole("heading", { name: "Your test is ready to try." })
+      .waitFor();
+    await page.getByLabel("Application environment").selectOption("qa");
+    await page
+      .getByLabel("Test account", { exact: true })
+      .selectOption("buyer");
+    const request = page.waitForRequest((r) => r.url().endsWith("/api/runs"));
+    await page
+      .getByRole("button", { name: "Try this test", exact: true })
+      .click();
+    assert.equal((await request).postDataJSON().user, "buyer");
+    await page.getByText("The check passed", { exact: true }).waitFor();
+    state = await (await fetch(`${app.url}/api/workspace`)).json();
+    assert.equal(state.project.tests.at(-1).role, "customer");
+    assert.equal(state.runs[0].report.environment, "qa");
+  } finally {
+    await browser.close();
+    await app.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("SSO setup guides interactive MFA, saves scoped state privately and supports forgetting the session", async () => {
+  const { createServer } = await import("node:http");
+  const dir = await mkdtemp(join(tmpdir(), "superq-sso-ui-"));
+  const target = createServer((req, res) => {
+    res.setHeader("content-type", "text/html");
+    if (req.url?.startsWith("/verify?code=246810")) {
+      res.writeHead(302, {
+        "set-cookie": "auth=private-ui-auth-cookie; Path=/; HttpOnly",
+        location: "/home",
+      });
+      res.end();
+    } else if (req.url === "/home")
+      res.end(
+        req.headers.cookie?.includes("auth=private-ui-auth-cookie")
+          ? "<h1>Welcome qa-user</h1>"
+          : "<h1>Sign in required</h1>",
+      );
+    else
+      res.end(
+        '<form action="/verify"><label>MFA code<input name="code"></label><button>Verify</button></form>',
+      );
+  });
+  await new Promise<void>((r) => target.listen(0, "127.0.0.1", r));
+  const addr = target.address();
+  assert.ok(addr && typeof addr !== "string");
+  let authBrowser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  const app = await startWorkspace({
+    port: 0,
+    file: join(dir, "state.json"),
+    authDirectory: join(dir, "auth"),
+    authConnector: async (_profile, _name, options) => {
+      authBrowser = await chromium.launch({ proxy: options.proxy });
+      return authBrowser;
+    },
+  });
+  const browser = await chromium.launch();
+  try {
+    let state = await (await fetch(`${app.url}/api/workspace`)).json();
+    const configured = await fetch(`${app.url}/api/environments`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-superq-token": state.token,
+      },
+      body: JSON.stringify({
+        revision: state.revision,
+        base: { roles: {}, environments: state.project.environments },
+        roles: { customer: { description: "Customer" } },
+        environments: {
+          ...state.project.environments,
+          qa: {
+            baseURL: `http://127.0.0.1:${addr.port}/`,
+            data: {},
+            users: { buyer: { role: "customer", username: "qa-user" } },
+            defaultUser: "buyer",
+          },
+        },
+      }),
+    });
+    assert.equal(configured.status, 200);
+    const page = await browser.newPage();
+    await page.goto(`${app.url}/#environments`);
+    await page
+      .getByLabel("Environment", { exact: false })
+      .first()
+      .selectOption("qa");
+    await page.getByText("SSO & interactive MFA", { exact: true }).click();
+    await page
+      .getByLabel("Reuse an SSO/MFA-authenticated browser session")
+      .check();
+    await page.getByLabel("Signed-in page path").fill("home");
+    await page
+      .getByLabel("Signed-in confirmation text")
+      .fill("Welcome ${user.username}");
+    await page.getByRole("button", { name: "Save environment setup" }).click();
+    await page.getByText("Environment setup saved", { exact: true }).waitFor();
+    await page
+      .getByRole("button", { name: "Sign in buyer", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Save signed-in session", exact: true })
+      .waitFor();
+    state = await (await fetch(`${app.url}/api/workspace`)).json();
+    const blocked = await fetch(`${app.url}/api/project`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-superq-token": state.token,
+      },
+      body: JSON.stringify({
+        revision: state.revision,
+        project: state.project,
+      }),
+    });
+    assert.equal(blocked.status, 409);
+    const provider = authBrowser!.contexts()[0]!.pages()[0]!;
+    await provider.getByLabel("MFA code").fill("246810");
+    await provider.getByRole("button", { name: "Verify", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Save signed-in session", exact: true })
+      .click();
+    await page
+      .getByText("Session saved; rechecked on run", { exact: true })
+      .waitFor();
+    state = await (await fetch(`${app.url}/api/workspace`)).json();
+    assert.equal(state.authSessions.qa.buyer, "saved");
+    assert.equal(state.signIn, null);
+    assert.ok(!JSON.stringify(state).includes("private-ui-auth-cookie"));
+    await page
+      .getByRole("button", { name: "Forget session buyer", exact: true })
+      .click();
+    await page.getByText("Sign-in required", { exact: true }).waitFor();
+    await page.getByText("Browser login setup", { exact: true }).click();
+    await page
+      .getByLabel("Sign in with the selected account before screen tests")
+      .check();
+    await page
+      .getByLabel("Successful login path", { exact: true })
+      .fill("home");
+    await page.getByLabel("Use TOTP MFA for these test accounts").check();
+    await page.getByLabel("Password secret name for buyer").fill("QA_PASSWORD");
+    await page.getByLabel("TOTP secret name for buyer").fill("QA_TOTP");
+    const mfaSave = page.waitForResponse((r) =>
+      r.url().endsWith("/api/environments"),
+    );
+    await page.getByRole("button", { name: "Save environment setup" }).click();
+    assert.equal((await mfaSave).status(), 200);
+    state = await (await fetch(`${app.url}/api/workspace`)).json();
+    assert.equal(state.project.environments.qa.sso, undefined);
+    assert.equal(
+      state.project.environments.qa.login.mfa.codeLabel,
+      "Authentication code",
+    );
+    assert.equal(
+      state.project.environments.qa.users.buyer.totpSecretEnv,
+      "QA_TOTP",
+    );
+  } finally {
+    await browser.close();
+    await app.close();
+    await new Promise<void>((r) => target.close(() => r()));
+    await rm(dir, { recursive: true, force: true });
+  }
+});

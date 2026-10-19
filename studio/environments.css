@@ -1,0 +1,110 @@
+.environment-settings {
+  max-width: 1000px;
+  margin: auto;
+}
+.environment-settings > h1 {
+  margin-bottom: 12px;
+}
+.environment-settings p {
+  color: #647086;
+  line-height: 1.7;
+  margin: 12px 0;
+}
+.environment-card {
+  background: white;
+  border: 1px solid #e0e6ee;
+  border-radius: 12px;
+  padding: 24px;
+  margin: 24px 0;
+}
+.environment-card h2 {
+  font-size: 20px;
+  margin-bottom: 18px;
+}
+.environment-settings label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 13px;
+  margin: 16px 0;
+  flex: 1;
+  min-width: 0;
+}
+.environment-settings input:not([type="checkbox"]),
+.environment-settings select {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #ccd5e2;
+  border-radius: 7px;
+  background: white;
+  color: #26364f;
+  font: inherit;
+}
+.environment-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.environment-row > .button {
+  margin-top: 24px;
+}
+.environment-card fieldset {
+  border: 1px solid #e0e6ee;
+  border-radius: 10px;
+  padding: 16px;
+  margin: 20px 0;
+}
+.environment-card legend {
+  font-weight: 700;
+  padding: 0 8px;
+}
+.environment-card summary {
+  cursor: pointer;
+  font-weight: 650;
+}
+.environment-settings > [role="alert"] {
+  color: #a32b3b;
+}
+@media (max-width: 650px) {
+  .environment-row {
+    display: block;
+  }
+  .environment-row > .button {
+    margin: 0 0 12px;
+  }
+  .environment-card {
+    padding: 18px;
+  }
+}
+
+.environment-settings label:has(> input[type="checkbox"]) {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+.environment-settings input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  flex: none;
+}
+.environment-settings .auth-session-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin: 18px 0;
+}
+.environment-settings .auth-session-row > .button {
+  margin: 0;
+}
+.environment-settings textarea {
+  padding: 10px;
+  border: 1px solid #ccd5e2;
+  border-radius: 7px;
+  color: #26364f;
+  font: inherit;
+  width: 100%;
+}

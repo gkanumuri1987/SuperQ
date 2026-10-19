@@ -1,0 +1,7 @@
+{
+  "applicationRevision": "0000000000000000000000000000000000000000",
+  "artifactDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "reports": ["../.superq/report.json"],
+  "checks": [],
+  "approvals": []
+}

@@ -1,0 +1,11 @@
+# Manual test intake and sprint planning
+
+Studio → Intake & sprint planning accepts a normalized JSON planning package from file or pasted text. Set team and sprint, then supply `features`, `stories`, `cases` and `documents`. The editable example shows required fields. This initial implementation accepts mapped exports; it does not fetch test suites from ADO, Xray, Zephyr or Jira automatically. Existing read-only work-item connectors are separate from this intake screen.
+
+Every feature lifecycle and story requires source, revision and excerpt. Source references are user-supplied evidence, not independently authenticated facts. Repo access alone does not inventory all features. Map reviewed application evidence into the feature inventory; unmapped features remain unknown. Documents accept an explicit `kind`, including engineering designs, incident reports or defect analyses according to what your team means by EDs.
+
+Case identity is source plus external ID. Duplicate identities are rejected. Import preserves steps, expected outcomes and tracker revision. Saving replaces the planning package; combine exports first. Cases are separate from executable automation and do not increase proven coverage. Nothing is deleted, retired or approved by this workflow.
+
+Review distinguishes current sprint scope from lifecycle. Missing feature context stays unknown; explicit retired feature evidence yields an obsolete candidate requiring review. Mixed active/deprecated/retired feature links require review. Dependencies report missing prerequisites and cycles, with fixture or ordering suggestions.
+
+Story coverage suggestions include positive and negative review prompts, supplied boundary values and integration contracts. Boundary suggestions require explicit min, max and increment; inclusivity and invalid partitions still need confirmation. Documents linked by feature are queued for reconciliation. This is deterministic traceability and planning, not semantic document analysis or a guarantee of complete coverage. It does not yet infer uncovered assertions from manual text, generate reviewed executable tests, support cross-sprint history, or resolve contradictory documents automatically.
