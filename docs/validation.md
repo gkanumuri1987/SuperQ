@@ -30,3 +30,7 @@ The Studio starts with a labeled sample and no live remote connections. Tracker 
 ## Environment-scoped accounts and data
 
 The full local suite passes 74 tests. New coverage exercises role selection/ambiguity, missing secrets, anonymous behavior, environment separation, typed suite/case overrides, distinct API URLs, bearer injection and explicit header override, cross-service credential boundaries, browser form login with a real local session, locator data substitution, run-identity invalidation, and the rendered Studio setup/selection workflow. Production build and strict typechecks pass; desktop/mobile layouts were visually inspected. These checks use controlled local fixtures, not live QA/UAT systems, SSO/MFA or a production authorization audit.
+
+## Application SSO/MFA
+
+The full local suite passes 79 tests, including redirected interactive MFA capture/reuse, environment/account isolation, expiry and provider rejection blockers, cancellation, disallowed redirect prevention, HTTPS tunnel destination controls, RFC 6238 vectors for SHA-1/SHA-256/SHA-512, actual TOTP form submission, and Studio save/forget/TOTP configuration. Production build and strict typechecks pass. Tests use local fixtures and headless Chromium capture connectors; native headed interaction, live identity-provider policies, hardware factors and remote-browser compatibility remain unvalidated. No paid cloud browser or model call was used.

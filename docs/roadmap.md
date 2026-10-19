@@ -64,3 +64,7 @@ The default Automate screen and simplified navigation now put common functional 
 ## Environment-scoped application users and data (implemented)
 
 Studio setup now manages application roles, environment accounts/defaults, separate web/API URLs, environment data and form login. Execution resolves role requirements, selected accounts and process secret references; bearer headers, login contexts, typed data and locator substitutions are environment-aware. Per-suite/per-case environment overlays and named HTTP service URLs are available in project configuration. This is not SuperQ platform RBAC or SSO/MFA provisioning. Database connection secrets remain on the existing process-level adapter configuration.
+
+## Application SSO/MFA (implemented)
+
+Guided local sign-in now supports human completion of provider SSO/MFA, scoped expiring browser snapshots, per-journey identity-page checks, local session deletion and a CLI capture command. A capture proxy restricts configured HTTP origins and HTTPS tunnel destinations, including redirects. Configured two-stage form login supports per-account TOTP seed references with RFC-vector tests. No provider enrollment, SMS retrieval, push approval, OAuth API token broker or SuperQ platform SSO/RBAC is implied. Live provider/device/policy compatibility and distributed account leasing remain pilot work. See [SSO/MFA setup](sso-mfa.md).

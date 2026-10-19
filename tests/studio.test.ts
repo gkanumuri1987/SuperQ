@@ -449,3 +449,148 @@ test("environment setup configures scoped accounts, typed data and URLs; simple 
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("SSO setup guides interactive MFA, saves scoped state privately and supports forgetting the session", async () => {
+  const { createServer } = await import("node:http");
+  const dir = await mkdtemp(join(tmpdir(), "superq-sso-ui-"));
+  const target = createServer((req, res) => {
+    res.setHeader("content-type", "text/html");
+    if (req.url?.startsWith("/verify?code=246810")) {
+      res.writeHead(302, {
+        "set-cookie": "auth=private-ui-auth-cookie; Path=/; HttpOnly",
+        location: "/home",
+      });
+      res.end();
+    } else if (req.url === "/home")
+      res.end(
+        req.headers.cookie?.includes("auth=private-ui-auth-cookie")
+          ? "<h1>Welcome qa-user</h1>"
+          : "<h1>Sign in required</h1>",
+      );
+    else
+      res.end(
+        '<form action="/verify"><label>MFA code<input name="code"></label><button>Verify</button></form>',
+      );
+  });
+  await new Promise<void>((r) => target.listen(0, "127.0.0.1", r));
+  const addr = target.address();
+  assert.ok(addr && typeof addr !== "string");
+  let authBrowser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  const app = await startWorkspace({
+    port: 0,
+    file: join(dir, "state.json"),
+    authDirectory: join(dir, "auth"),
+    authConnector: async (_profile, _name, options) => {
+      authBrowser = await chromium.launch({ proxy: options.proxy });
+      return authBrowser;
+    },
+  });
+  const browser = await chromium.launch();
+  try {
+    let state = await (await fetch(`${app.url}/api/workspace`)).json();
+    const configured = await fetch(`${app.url}/api/environments`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-superq-token": state.token,
+      },
+      body: JSON.stringify({
+        revision: state.revision,
+        base: { roles: {}, environments: state.project.environments },
+        roles: { customer: { description: "Customer" } },
+        environments: {
+          ...state.project.environments,
+          qa: {
+            baseURL: `http://127.0.0.1:${addr.port}/`,
+            data: {},
+            users: { buyer: { role: "customer", username: "qa-user" } },
+            defaultUser: "buyer",
+          },
+        },
+      }),
+    });
+    assert.equal(configured.status, 200);
+    const page = await browser.newPage();
+    await page.goto(`${app.url}/#environments`);
+    await page
+      .getByLabel("Environment", { exact: false })
+      .first()
+      .selectOption("qa");
+    await page.getByText("SSO & interactive MFA", { exact: true }).click();
+    await page
+      .getByLabel("Reuse an SSO/MFA-authenticated browser session")
+      .check();
+    await page.getByLabel("Signed-in page path").fill("home");
+    await page
+      .getByLabel("Signed-in confirmation text")
+      .fill("Welcome ${user.username}");
+    await page.getByRole("button", { name: "Save environment setup" }).click();
+    await page.getByText("Environment setup saved", { exact: true }).waitFor();
+    await page
+      .getByRole("button", { name: "Sign in buyer", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Save signed-in session", exact: true })
+      .waitFor();
+    state = await (await fetch(`${app.url}/api/workspace`)).json();
+    const blocked = await fetch(`${app.url}/api/project`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-superq-token": state.token,
+      },
+      body: JSON.stringify({
+        revision: state.revision,
+        project: state.project,
+      }),
+    });
+    assert.equal(blocked.status, 409);
+    const provider = authBrowser!.contexts()[0]!.pages()[0]!;
+    await provider.getByLabel("MFA code").fill("246810");
+    await provider.getByRole("button", { name: "Verify", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Save signed-in session", exact: true })
+      .click();
+    await page
+      .getByText("Session saved; rechecked on run", { exact: true })
+      .waitFor();
+    state = await (await fetch(`${app.url}/api/workspace`)).json();
+    assert.equal(state.authSessions.qa.buyer, "saved");
+    assert.equal(state.signIn, null);
+    assert.ok(!JSON.stringify(state).includes("private-ui-auth-cookie"));
+    await page
+      .getByRole("button", { name: "Forget session buyer", exact: true })
+      .click();
+    await page.getByText("Sign-in required", { exact: true }).waitFor();
+    await page.getByText("Browser login setup", { exact: true }).click();
+    await page
+      .getByLabel("Sign in with the selected account before screen tests")
+      .check();
+    await page
+      .getByLabel("Successful login path", { exact: true })
+      .fill("home");
+    await page.getByLabel("Use TOTP MFA for these test accounts").check();
+    await page.getByLabel("Password secret name for buyer").fill("QA_PASSWORD");
+    await page.getByLabel("TOTP secret name for buyer").fill("QA_TOTP");
+    const mfaSave = page.waitForResponse((r) =>
+      r.url().endsWith("/api/environments"),
+    );
+    await page.getByRole("button", { name: "Save environment setup" }).click();
+    assert.equal((await mfaSave).status(), 200);
+    state = await (await fetch(`${app.url}/api/workspace`)).json();
+    assert.equal(state.project.environments.qa.sso, undefined);
+    assert.equal(
+      state.project.environments.qa.login.mfa.codeLabel,
+      "Authentication code",
+    );
+    assert.equal(
+      state.project.environments.qa.users.buyer.totpSecretEnv,
+      "QA_TOTP",
+    );
+  } finally {
+    await browser.close();
+    await app.close();
+    await new Promise<void>((r) => target.close(() => r()));
+    await rm(dir, { recursive: true, force: true });
+  }
+});

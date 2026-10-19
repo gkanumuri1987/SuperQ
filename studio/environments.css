@@ -78,3 +78,33 @@
     padding: 18px;
   }
 }
+
+.environment-settings label:has(> input[type="checkbox"]) {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+.environment-settings input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  flex: none;
+}
+.environment-settings .auth-session-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin: 18px 0;
+}
+.environment-settings .auth-session-row > .button {
+  margin: 0;
+}
+.environment-settings textarea {
+  padding: 10px;
+  border: 1px solid #ccd5e2;
+  border-radius: 7px;
+  color: #26364f;
+  font: inherit;
+  width: 100%;
+}

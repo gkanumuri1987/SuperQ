@@ -1,3 +1,9 @@
+import {
+  beginSignIn,
+  authDirectory,
+  sessionStatus,
+  revokeSession,
+} from "./auth-session.js";
 import { createQuickTest } from "./quick-test.js";
 import { TestDesign, designPairwise } from "./test-design.js";
 import {
@@ -69,11 +75,25 @@ export type WorkspaceState = {
   sourceAlerts?: { path: string; revision: string }[];
 };
 export async function startWorkspace(
-  options: { port?: number; file?: string; dev?: boolean } = {},
+  options: {
+    port?: number;
+    file?: string;
+    dev?: boolean;
+    authDirectory?: string;
+    authConnector?: Parameters<typeof beginSignIn>[4];
+  } = {},
 ) {
   const port = options.port ?? 4310;
   const file = resolve(options.file ?? ".superq/workspace/state.json");
   const token = randomBytes(24).toString("hex");
+  const sessionDirectory = options.authDirectory ?? authDirectory();
+  let signInStarting = false;
+  let signIn: {
+    id: string;
+    environment: string;
+    user: string;
+    handle: Awaited<ReturnType<typeof beginSignIn>>;
+  } | null = null;
   let busy = false;
   let scanning = false;
   let state: WorkspaceState;
@@ -325,9 +345,31 @@ export async function startWorkspace(
         return;
       }
       if (path === "/api/workspace" && req.method === "GET") {
+        if (signIn?.handle.isClosed()) signIn = null;
+        const authSessions: Record<string, Record<string, string>> = {};
+        for (const [env, config] of Object.entries(state.project.environments))
+          if (config.sso) {
+            authSessions[env] = {};
+            for (const user of Object.keys(config.users ?? {}))
+              authSessions[env]![user] = await sessionStatus(
+                state.project,
+                env,
+                user,
+                sessionDirectory,
+              );
+          }
+
         json(res, 200, {
           ...state,
           token,
+          authSessions,
+          signIn: signIn
+            ? {
+                id: signIn.id,
+                environment: signIn.environment,
+                user: signIn.user,
+              }
+            : null,
           coverage: coverage(
             state.project,
             state.runs.find(
@@ -397,13 +439,76 @@ export async function startWorkspace(
           });
           return;
         }
+        if (signIn?.handle.isClosed()) signIn = null;
+        if (
+          (signInStarting || signIn) &&
+          !["/api/auth/finish", "/api/auth/cancel"].includes(path)
+        ) {
+          json(res, 409, {
+            error: "Finish or cancel the active SSO/MFA sign-in first.",
+          });
+          return;
+        }
         if (busy && path !== "/api/ai") {
           json(res, 409, {
             error: "A run is active. Wait before changing the project.",
           });
           return;
         }
-        if (path === "/api/environments") {
+        if (path === "/api/auth/start") {
+          if (
+            canonical(data.base) !==
+            canonical({
+              roles: state.project.roles ?? {},
+              environments: state.project.environments,
+            })
+          ) {
+            json(res, 409, {
+              error: "Save or reload environment setup before signing in.",
+            });
+            return;
+          }
+          signInStarting = true;
+          try {
+            const environment = z.string().parse(data.environment),
+              user = z.string().parse(data.user);
+            const handle = await beginSignIn(
+              state.project,
+              environment,
+              user,
+              sessionDirectory,
+              options.authConnector,
+            );
+            signIn = { id: randomUUID(), environment, user, handle };
+          } finally {
+            signInStarting = false;
+          }
+          json(res, 200, { ok: true });
+          return;
+        } else if (path === "/api/auth/finish") {
+          if (!signIn || data.id !== signIn.id)
+            throw new Error("No matching sign-in is active.");
+          await signIn.handle.finish();
+          signIn = null;
+          json(res, 200, { ok: true });
+          return;
+        } else if (path === "/api/auth/cancel") {
+          if (signIn && data.id !== signIn.id)
+            throw new Error("No matching sign-in is active.");
+          await signIn?.handle.cancel();
+          signIn = null;
+          json(res, 200, { ok: true });
+          return;
+        } else if (path === "/api/auth/revoke") {
+          await revokeSession(
+            state.project,
+            z.string().parse(data.environment),
+            z.string().parse(data.user),
+            sessionDirectory,
+          );
+          json(res, 200, { ok: true });
+          return;
+        } else if (path === "/api/environments") {
           const current = {
             roles: state.project.roles ?? {},
             environments: state.project.environments,
@@ -678,7 +783,11 @@ export async function startWorkspace(
           await save();
           json(res, 202, { id: job.id });
           void (async () => {
-            const adapters = createAdapters(profile);
+            const adapters = createAdapters(
+              profile,
+              undefined,
+              sessionDirectory,
+            );
             try {
               const results = await run(
                 project,
@@ -781,7 +890,13 @@ export async function startWorkspace(
     await save();
   }
   const timer = setInterval(() => {
-    if (state.connections.watch && !busy && !scanning)
+    if (
+      state.connections.watch &&
+      !busy &&
+      !scanning &&
+      !signIn &&
+      !signInStarting
+    )
       void scan().catch(async () => {
         state.connections.lastError =
           "Source scan failed or a comparison needs review. Check the configured paths and inbox.";
@@ -794,6 +909,7 @@ export async function startWorkspace(
     state: () => state,
     close: async () => {
       clearInterval(timer);
+      await signIn?.handle.cancel();
       await vite?.close();
       await new Promise<void>((resolve) => server.close(() => resolve()));
     },

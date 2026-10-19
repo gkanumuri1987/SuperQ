@@ -1,3 +1,4 @@
+import { beginSignIn } from './auth-session.js';
 import { designPairwise } from "./test-design.js";
 import { readFile, mkdir, writeFile, access } from 'node:fs/promises';
 import { resolve, join, dirname } from 'node:path';
@@ -19,6 +20,7 @@ import { createReport, writeReports, type ProfileRun } from './reporting.js';
 import { snapshot, changes, loadSnapshot } from './knowledge.js';
 const help=`SuperQ — evidence-driven automation
 
+  auth-login <project.json> <env> <user>   Complete SSO/MFA in a local browser
   design <design.json>                    Generate constrained pairwise test data (no AI call)
   init <project.json>                      Create an editable reference project
   doctor <project.json>                   Validate setup without starting cloud sessions
@@ -53,6 +55,7 @@ async function main() {
   if(command==='init'&&file) {const template=await readFile(new URL('../examples/project.json',import.meta.url),'utf8');await writeFile(resolve(file),template,{flag:'wx',mode:0o600});console.log(`Created ${file}. Edit its requirements, tests and environment, then run doctor.`);return;}
   if(command==='snapshot'&&file&&args.length>=2) {const [out,...paths]=args; const result=await snapshot(file,paths); await writeFile(resolve(out!),JSON.stringify(result,null,2),{mode:0o600});console.log(`Saved committed source snapshot ${result.revision}`);return;}
   if(command==='diff'&&file&&args[0]) {console.log(JSON.stringify(changes(await loadSnapshot(file),await loadSnapshot(args[0])),null,2));return;}
+  if(command==='auth-login'&&file&&args[0]&&args[1]){const p=validateProject(JSON.parse(await readFile(resolve(file),'utf8')));const session=await beginSignIn(p,args[0],args[1]);const {createInterface}=await import('node:readline/promises');const rl=createInterface({input:process.stdin,output:process.stdout});try{await rl.question('Complete SSO and MFA in the opened browser, then press Enter to save the verified session. ');const result=await session.finish();console.log(`Session saved until ${result.expiresAt}. Keep the auth directory private.`);}finally{rl.close();await session.cancel();}return;}
   if(!file||!['validate','analyze','run','plan','doctor','audit','promote','review-test','suggest'].includes(command)) throw new Error(help);
   const p=validateProject(JSON.parse(await readFile(resolve(file),'utf8')));
   if(command==='suggest'){if(!args[0]||!values.model)throw new Error('Requirement ID and explicit --model required');const planner=new Planner(ollamaProvider(values.model,values['ollama-url']),0.01);const proposal=await planner.propose(p,args[0],0.01);console.log(JSON.stringify({status:'draft',reviewRequired:true,provider:'ollama',model:values.model,proposal,note:'No executable test or approval was written. Local compute costs are not metered.'},null,2));return;}

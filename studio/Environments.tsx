@@ -6,8 +6,14 @@ type Row = { key: string; value: string };
 export default function Environments({
   project: p,
   save,
+  authSessions = {},
+  signIn = null,
+  action,
 }: {
   project: Project;
+  authSessions?: Record<string, Record<string, string>>;
+  signIn?: { id: string; environment: string; user: string } | null;
+  action?: (path: string, body: Record<string, unknown>) => Promise<boolean>;
   save: (value: Record<string, unknown>) => Promise<boolean>;
 }) {
   const [base, setBase] = useState(() => ({
@@ -279,6 +285,21 @@ export default function Environments({
                     />
                   </label>
                 </div>
+                {env.login?.mfa && (
+                  <label>
+                    TOTP secret name for {id}
+                    <input
+                      value={u.totpSecretEnv ?? ""}
+                      placeholder={`${selected.toUpperCase()}_${u.role.toUpperCase()}_TOTP`}
+                      autoComplete="off"
+                      onChange={(e) =>
+                        updateUser(id, {
+                          totpSecretEnv: e.target.value || undefined,
+                        })
+                      }
+                    />
+                  </label>
+                )}
                 <button
                   className="button"
                   onClick={() => {
@@ -414,6 +435,192 @@ export default function Environments({
             </button>
           </div>
           <details className="environment-card">
+            <summary>SSO & interactive MFA</summary>
+            <label>
+              <input
+                type="checkbox"
+                checked={!!env.sso}
+                onChange={(e) =>
+                  update({
+                    login: undefined,
+                    sso: e.target.checked
+                      ? {
+                          startPath: "login",
+                          successPath: "",
+                          successText: "",
+                          allowedOrigins: [],
+                          maxAgeMinutes: 60,
+                        }
+                      : undefined,
+                  })
+                }
+              />
+              Reuse an SSO/MFA-authenticated browser session
+            </label>
+            {env.sso && (
+              <>
+                <label>
+                  SSO start page path
+                  <input
+                    value={env.sso.startPath}
+                    onChange={(e) =>
+                      update({
+                        sso: { ...env.sso!, startPath: e.target.value },
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  Signed-in page path
+                  <input
+                    value={env.sso.successPath}
+                    onChange={(e) =>
+                      update({
+                        sso: { ...env.sso!, successPath: e.target.value },
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  Signed-in confirmation text
+                  <input
+                    value={env.sso.successText}
+                    placeholder="Welcome ${user.username}"
+                    onChange={(e) =>
+                      update({
+                        sso: { ...env.sso!, successText: e.target.value },
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  Allowed identity-provider origins (one per line)
+                  <textarea
+                    key={selected}
+                    rows={3}
+                    defaultValue={env.sso.allowedOrigins.join("\n")}
+                    placeholder="https://login.example.com"
+                    onBlur={(e) =>
+                      update({
+                        sso: {
+                          ...env.sso!,
+                          allowedOrigins: e.target.value
+                            .split("\n")
+                            .map((s) => s.trim())
+                            .filter(Boolean),
+                        },
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  Session lifetime in minutes
+                  <input
+                    type="number"
+                    min={1}
+                    max={480}
+                    value={env.sso.maxAgeMinutes}
+                    onChange={(e) =>
+                      update({
+                        sso: {
+                          ...env.sso!,
+                          maxAgeMinutes: Number(e.target.value),
+                        },
+                      })
+                    }
+                  />
+                </label>
+                <p>
+                  Save setup, then sign in once per environment account.
+                  Complete the provider’s SSO and MFA prompts in the opened
+                  browser, return here, and save the session. Each test uses an
+                  isolated session and checks that it is still signed in.
+                </p>
+                {Object.keys(env.users ?? {}).map((user) => (
+                  <div className="environment-row auth-session-row" key={user}>
+                    <strong>{user}</strong>
+                    <span>
+                      {authSessions[selected]?.[user] === "saved"
+                        ? "Session saved; rechecked on run"
+                        : "Sign-in required"}
+                    </span>
+                    <button
+                      className="button"
+                      disabled={
+                        busy ||
+                        !!signIn ||
+                        JSON.stringify(env) !==
+                          JSON.stringify(base.environments[selected])
+                      }
+                      onClick={async () => {
+                        setBusy(true);
+                        try {
+                          await action?.("auth/start", {
+                            base,
+                            environment: selected,
+                            user,
+                          });
+                        } finally {
+                          setBusy(false);
+                        }
+                      }}
+                    >
+                      Sign in {user}
+                    </button>
+                    <button
+                      className="button"
+                      disabled={!!signIn}
+                      onClick={() =>
+                        void action?.("auth/revoke", {
+                          environment: selected,
+                          user,
+                        })
+                      }
+                    >
+                      Forget session {user}
+                    </button>
+                  </div>
+                ))}
+                {signIn && (
+                  <div role="status">
+                    <p>
+                      Sign-in open for {signIn.user} in {signIn.environment}.
+                      Finish the provider’s MFA challenge, then confirm here.
+                    </p>
+                    <button
+                      className="button primary"
+                      disabled={busy}
+                      onClick={async () => {
+                        setBusy(true);
+                        try {
+                          await action?.("auth/finish", { id: signIn.id });
+                        } finally {
+                          setBusy(false);
+                        }
+                      }}
+                    >
+                      Save signed-in session
+                    </button>
+                    <button
+                      className="button"
+                      onClick={() =>
+                        void action?.("auth/cancel", { id: signIn.id })
+                      }
+                    >
+                      Cancel sign-in
+                    </button>
+                  </div>
+                )}
+                <p>
+                  Sessions contain credentials and are stored privately outside
+                  project exports. Session reuse does not test MFA on every run.
+                  Providers, SSO flows and hardware factors require validation
+                  with your application.
+                </p>
+              </>
+            )}
+          </details>
+          <details className="environment-card">
             <summary>Browser login setup</summary>
             <label>
               <input
@@ -421,6 +628,7 @@ export default function Environments({
                 checked={!!env.login}
                 onChange={(e) =>
                   update({
+                    sso: undefined,
                     login: e.target.checked
                       ? {
                           path: "login",
@@ -436,32 +644,102 @@ export default function Environments({
               Sign in with the selected account before screen tests
             </label>
             {env.login &&
-              Object.entries(env.login).map(([key, value]) => (
-                <label key={key}>
-                  {
-                    (
-                      {
-                        path: "Login page path",
-                        usernameLabel: "Username field label",
-                        passwordLabel: "Password field label",
-                        submitButton: "Sign-in button text",
-                        successPath: "Successful login path",
-                      } as Record<string, string>
-                    )[key]
-                  }
+              Object.entries(env.login)
+                .filter(([key]) => key !== "mfa")
+                .map(([key, value]) => (
+                  <label key={key}>
+                    {
+                      (
+                        {
+                          path: "Login page path",
+                          usernameLabel: "Username field label",
+                          passwordLabel: "Password field label",
+                          submitButton: "Sign-in button text",
+                          successPath: "Successful login path",
+                        } as Record<string, string>
+                      )[key]
+                    }
+                    <input
+                      value={typeof value === "string" ? value : ""}
+                      onChange={(e) =>
+                        update({
+                          login: { ...env.login!, [key]: e.target.value },
+                        })
+                      }
+                    />
+                  </label>
+                ))}
+            {env.login && (
+              <>
+                <label>
                   <input
-                    value={value}
+                    type="checkbox"
+                    checked={!!env.login.mfa}
                     onChange={(e) =>
                       update({
-                        login: { ...env.login!, [key]: e.target.value },
+                        login: {
+                          ...env.login!,
+                          mfa: e.target.checked
+                            ? {
+                                codeLabel: "Authentication code",
+                                submitButton: "Verify",
+                              }
+                            : undefined,
+                        },
                       })
                     }
                   />
+                  Use TOTP MFA for these test accounts
                 </label>
-              ))}
+                {env.login.mfa && (
+                  <>
+                    <label>
+                      MFA code field label
+                      <input
+                        value={env.login.mfa.codeLabel}
+                        onChange={(e) =>
+                          update({
+                            login: {
+                              ...env.login!,
+                              mfa: {
+                                ...env.login!.mfa!,
+                                codeLabel: e.target.value,
+                              },
+                            },
+                          })
+                        }
+                      />
+                    </label>
+                    <label>
+                      MFA verify button
+                      <input
+                        value={env.login.mfa.submitButton}
+                        onChange={(e) =>
+                          update({
+                            login: {
+                              ...env.login!,
+                              mfa: {
+                                ...env.login!.mfa!,
+                                submitButton: e.target.value,
+                              },
+                            },
+                          })
+                        }
+                      />
+                    </label>
+                    <p>
+                      Set each account’s TOTP secret variable name above. Use
+                      test-account seeds approved for automation;
+                      push/SMS/security-key challenges use interactive sign-in.
+                    </p>
+                  </>
+                )}
+              </>
+            )}
             <p>
-              This supports a same-origin labeled login form. SSO, MFA and other
-              custom flows need a custom setup. Anonymous tests skip this login.
+              This supports a same-origin labeled login form. Anonymous tests
+              skip this login. Use the SSO section for provider sign-in and
+              interactive MFA.
             </p>
           </details>
         </>

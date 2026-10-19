@@ -64,6 +64,8 @@ import type { coverage } from "../src/coverage";
 import type { audit } from "../src/audit";
 type Data = WorkspaceState & {
   token: string;
+  authSessions: Record<string, Record<string, string>>;
+  signIn: { id: string; environment: string; user: string } | null;
   reviews: Record<string, boolean>;
   coverage: ReturnType<typeof coverage>;
   audit: ReturnType<typeof audit>;
@@ -596,6 +598,11 @@ export default function App() {
           {page === "environments" && (
             <Environments
               project={p}
+              authSessions={data.authSessions}
+              signIn={data.signIn}
+              action={(path, body) =>
+                mutate(path, body, "Sign-in session updated")
+              }
               save={(value) =>
                 mutate("environments", value, "Environment setup saved")
               }

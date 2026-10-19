@@ -1,8 +1,9 @@
+import { AuthenticationRequired } from './auth-session.js';
 import assert from 'node:assert/strict';
 import type { Project, Result, Step, Assertion, Attempt } from './model.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { Execution } from './config.js';
-export type Context = { project: Project; baseURL: string; apiURL?: string; urls?: Record<string,string>; account?: {id:string;role:string;username?:string;password?:string;token?:string}; login?: NonNullable<Project["environments"][string]["login"]>; data: Record<string,unknown>; testId?: string; attempt?: number; signal?:AbortSignal };
+export type Context = { project: Project; baseURL: string; apiURL?: string; urls?: Record<string,string>; account?: {id:string;role:string;username?:string;password?:string;token?:string;mfaSecret?:string}; environment?:string; sso?:Project["environments"][string]["sso"]; login?: NonNullable<Project["environments"][string]["login"]>; data: Record<string,unknown>; testId?: string; attempt?: number; signal?:AbortSignal };
 export type Handler = (input: Record<string,unknown>, context: Context) => Promise<unknown>;
 export class Registry {
   private handlers = new Map<string,Handler>();
@@ -23,9 +24,11 @@ export function resolveAccount(p:Project,envName:string,test:Project['tests'][nu
   const user=users[id];if(!user)throw new Error(`Account ${id} is unavailable in ${envName}`);
   if(test.role&&user.role!==test.role)throw new Error(`Selected account does not have required role ${test.role}`);
   const read=(name?:string)=>{if(!name)return undefined;const value=secrets[name];if(!value)throw new Error(`Missing secret environment variable ${name}`);return value;};
-  const password=read(user.passwordEnv),token=read(user.tokenEnv);
+  const sessionOnly=!!env.sso&&test.steps.every(s=>p.catalog.find(a=>a.id===s.action)?.kind==='web');
+  const password=env.sso?undefined:read(user.passwordEnv),token=sessionOnly?undefined:read(user.tokenEnv);
   if(env.login&&test.steps.some(s=>p.catalog.find(a=>a.id===s.action)?.kind==='web')&&(!user.username||!password))throw new Error(`Browser login needs a username and password secret for account ${id}`);
-  return {id,role:user.role,username:user.username,password,token};
+  if(env.login?.mfa&&test.steps.some(s=>p.catalog.find(a=>a.id===s.action)?.kind==='web')&&!user.totpSecretEnv)throw new Error(`Configure a TOTP secret reference for account ${id}`);
+  return {id,role:user.role,username:user.username,password,token,...(env.login?.mfa&&test.steps.some(s=>p.catalog.find(a=>a.id===s.action)?.kind==='web')?{mfaSecret:read(user.totpSecretEnv)}:{})};
 }
 export function interpolate(value: unknown, data: Record<string,unknown>): unknown {
   if(typeof value==='string') {
@@ -89,7 +92,7 @@ export async function run(p: Project, env: string, suite: string, registry: Regi
       const attemptStart=Date.now(); let step=0; let failureKind:'action'|'assertion'|'timeout'='action';
       let didTimeout=false;
       try {
-        const data={...structuredClone({...resolveData(p,env,suite,t.data),...p.environments[env]!.testData?.[id]}),...(account?{'user.id':account.id,'user.role':account.role,'user.username':account.username,'user.password':account.password,'user.token':account.token}:{}),'url.web':p.environments[env]!.baseURL,'url.api':p.environments[env]!.apiURL??p.environments[env]!.baseURL,...Object.fromEntries(Object.entries(p.environments[env]!.urls??{}).map(([k,v])=>[`url.${k}`,v])),'superq.testId':id,'superq.attempt':number,'superq.runId':executionId,'superq.environment':env,'superq.suite':suite}; const context={project:p,baseURL:p.environments[env]!.baseURL,apiURL:p.environments[env]!.apiURL,urls:p.environments[env]!.urls,account,login:p.environments[env]!.login,data,testId:id,attempt:number};
+        const data={...structuredClone({...resolveData(p,env,suite,t.data),...p.environments[env]!.testData?.[id]}),...(account?{'user.id':account.id,'user.role':account.role,'user.username':account.username,'user.password':account.password,'user.token':account.token}:{}),'url.web':p.environments[env]!.baseURL,'url.api':p.environments[env]!.apiURL??p.environments[env]!.baseURL,...Object.fromEntries(Object.entries(p.environments[env]!.urls??{}).map(([k,v])=>[`url.${k}`,v])),'superq.testId':id,'superq.attempt':number,'superq.runId':executionId,'superq.environment':env,'superq.suite':suite}; const context={project:p,baseURL:p.environments[env]!.baseURL,apiURL:p.environments[env]!.apiURL,urls:p.environments[env]!.urls,account,environment:env,sso:p.environments[env]!.sso,login:p.environments[env]!.login,data,testId:id,attempt:number};
         for(const raw of t.steps) {
           step++; failureKind='action'; const s={...raw,input:interpolate(raw.input,data),assertions:interpolate(raw.assertions,data)} as Step; const action=p.catalog.find(a=>a.id===s.action)!;
           const controller=new AbortController();let timer:ReturnType<typeof setTimeout>|undefined;
@@ -101,7 +104,8 @@ export async function run(p: Project, env: string, suite: string, registry: Regi
           for(const [key,path] of Object.entries(s.save)){const value=valueAt(response,path);if(value===undefined) throw new Error('Saved response field is missing');Object.assign(data,{[key]:value});}
         }
         attempts.push({number,status:'passed',durationMs:Date.now()-attemptStart}); return finish('passed');
-      } catch {
+      } catch(error) {
+        if(error instanceof AuthenticationRequired)return finish('blocked',error.message);
         attempts.push({number,status:'failed',durationMs:Date.now()-attemptStart,failedStep:step,failureKind:didTimeout?'timeout':failureKind});
         if(didTimeout) break;
       }

@@ -131,3 +131,7 @@ See [architecture](docs/architecture.md), [delivery plan](docs/roadmap.md) and [
 ### Environment setup
 
 Studio → **Environments & accounts** configures application roles, accounts, web/API URLs and typed test data per environment. Functional tests can require a role and choose an environment account at execution. Password/token fields hold process secret names. See [configuration, precedence and authentication](docs/environments-and-accounts.md).
+
+### SSO and MFA for application tests
+
+Studio supports guided SSO/MFA sign-in and expiring account-scoped browser sessions. Configured two-stage form login also supports per-account TOTP secrets. See [setup, CI use and provider limits](docs/sso-mfa.md). SuperQ platform sign-in/RBAC remains separate.

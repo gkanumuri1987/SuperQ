@@ -49,6 +49,9 @@ export function validateProject(raw: unknown): Project {
     if(env.defaultUser&&!Object.hasOwn(env.users??{},env.defaultUser))throw new Error(`Unknown default user in ${name}`);
     for(const suite of Object.keys(env.suiteData??{}))if(!Object.hasOwn(p.suites,suite))throw new Error(`Unknown environment suite ${suite}`);
     for(const id of Object.keys(env.testData??{}))if(!p.tests.some(t=>t.id===id))throw new Error(`Unknown environment test ${id}`);
+    if(env.sso&&env.login)throw new Error('Choose SSO session reuse or form login for an environment');
+    if(env.sso){for(const path of [env.sso.startPath,env.sso.successPath])if(new URL(path,env.baseURL).origin!==new URL(env.baseURL).origin)throw new Error('SSO start/success paths must belong to the application');
+    for(const raw of env.sso.allowedOrigins){const u=new URL(raw);if(raw!==u.origin||!['http:','https:'].includes(u.protocol)||u.username||u.password)throw new Error('Provider origins must be exact HTTP(S) origins');}}
     if(env.login)for(const path of [env.login.path,env.login.successPath])if(new URL(path,env.baseURL).origin!==new URL(env.baseURL).origin||new URL(path,env.baseURL).username||new URL(path,env.baseURL).password)throw new Error('Login paths must stay within the web application');
     for(const values of [p.data,env.data,...Object.values(env.suiteData??{}),...Object.values(env.testData??{})])if(Object.keys(values).some(k=>k.startsWith('user.')||k.startsWith('url.')))throw new Error('user.* and url.* are reserved runtime values');
   }
