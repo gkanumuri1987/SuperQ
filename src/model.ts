@@ -1,3 +1,4 @@
+import { WebSetup, SetupIds } from "./web-commands.js";
 import { Environment } from './environment.js';
 import { z } from 'zod';
 import { BrowserProfile, Execution, Reporting } from './config.js';
@@ -17,6 +18,7 @@ export const Project = z.object({
   catalog: z.array(z.object({ id, kind: z.enum(['api','web','postgres','mongo','snowflake','custom']), operation: id, description: id }).strict()),
   locators: z.record(z.string(), z.object({ strategy: z.enum(['role','label','testId','text']), value: id, name: z.string().optional() }).strict()).default({}),
   tests: z.array(z.object({ id, title: id, role:id.optional(), user:id.optional(), anonymous:z.boolean().optional(), origin: z.enum(['qe','ai']), status: z.enum(['draft','approved']), review:z.object({reviewer:id,at:z.iso.datetime(),digest:z.string().regex(/^[a-f0-9]{64}$/).optional()}).strict().optional(), covers:z.record(z.string(),z.array(id)).default({}), requirementIds: z.array(id).min(1), evidenceIds: z.array(id).min(1), suites: z.array(id).min(1), tags: z.array(id).default([]), retrySafe: z.boolean().default(false), dependsOn: z.array(id).default([]), blockedBy: z.array(id).default([]), data: z.record(z.string(), z.unknown()).default({}), steps: z.array(Step).default([]) }).strict()),
+  webSetups: z.record(z.string().regex(/^[a-zA-Z][\w.-]{0,79}$/),WebSetup).optional(),
   healing: z.object({enabled:z.boolean().default(false),waitMs:z.number().int().min(50).max(5000).default(1000),locators:z.record(z.string(),z.array(z.string().min(1)).min(1).max(3)).default({})}).strict().optional(),
   release: ReleasePolicy.optional(),
   browsers: z.record(z.string(), BrowserProfile).default({local: BrowserProfile.parse({provider:"local"})}),
@@ -31,7 +33,7 @@ export type TestCase = Project['tests'][number];
 export type Step = z.infer<typeof Step>;
 export type Assertion = z.infer<typeof Assertion>;
 export type Attempt = { number: number; status: 'passed'|'failed'; durationMs: number; failedStep?: number; failureKind?: 'action'|'assertion'|'timeout' };
-export const Observation = z.object({ attempt: z.number().int().positive().optional(), step: z.number().int().positive(), command: z.number().int().positive().optional(), operation: z.string(), status: z.enum(['passed','failed']), locator: z.string().optional(), replacement: z.string().optional(), assertionPath: z.string().optional(), issue: z.enum(['navigation-failed','control-unavailable','ambiguous-control','interaction-failed','expectation-failed','assertion-failed']).optional() }).strict();
+export const Observation = z.object({ attempt: z.number().int().positive().optional(), step: z.number().int().positive(), setupId: z.string().optional(), command: z.number().int().positive().optional(), operation: z.string(), status: z.enum(['passed','failed']), locator: z.string().optional(), replacement: z.string().optional(), assertionPath: z.string().optional(), issue: z.enum(['navigation-failed','control-unavailable','ambiguous-control','interaction-failed','expectation-failed','assertion-failed']).optional() }).strict();
 export type Observation = z.infer<typeof Observation>;
 export const ResultSchema=z.object({id,healed:z.boolean().optional(),observations:z.array(Observation).optional(),diagnosticsTruncated:z.boolean().optional(),status:z.enum(['passed','failed','blocked','skipped']),durationMs:z.number().finite().nonnegative(),reason:z.string().optional(),flaky:z.boolean().optional(),dependency:z.boolean().optional(),attempts:z.array(z.object({number:z.number().int().positive(),status:z.enum(['passed','failed']),durationMs:z.number().finite().nonnegative(),failedStep:z.number().int().nonnegative().optional(),failureKind:z.enum(['action','assertion','timeout']).optional()}).strict()).optional()}).strict();
 export type Result = { id: string; healed?: boolean; observations?: Observation[]; diagnosticsTruncated?: boolean; status: 'passed'|'failed'|'blocked'|'skipped'; durationMs: number; reason?: string; attempts?: Attempt[]; flaky?: boolean; dependency?: boolean };
@@ -44,6 +46,7 @@ export function validateProject(raw: unknown): Project {
   unique(p.requirements.map(x=>x.id),'requirement ID'); unique(p.tests.map(x=>x.id),'test ID');
   unique(p.evidence.map(x=>x.id),'evidence ID'); unique(p.catalog.map(x=>x.id),'action ID');
   unique(p.catalog.map(x=>`${x.kind}:${x.operation}`),'catalog operation: reuse existing action');
+  unique(Object.values(p.webSetups??{}).map(s=>JSON.stringify(s.commands)),'web setup: reuse existing setup');
   unique(Object.values(p.locators).map(x=>JSON.stringify([x.strategy,x.value,x.name])),'locator: reuse existing locator');
   for(const [original,alternatives] of Object.entries(p.healing?.locators??{})) {
     if(!Object.hasOwn(p.locators,original)||alternatives.some(id=>!Object.hasOwn(p.locators,id)||id===original)||new Set(alternatives).size!==alternatives.length)throw new Error('Healing alternatives must reference distinct existing catalog locators');
@@ -73,6 +76,7 @@ export function validateProject(raw: unknown): Project {
     for(const s of p.release.requiredSuites) if(!Object.hasOwn(p.suites,s)) throw new Error(`Unknown release suite ${s}`);
     for(const b of p.release.requiredProfiles) if(!Object.hasOwn(p.browsers,b)) throw new Error(`Unknown release profile ${b}`);
   }
+  for(const setup of Object.values(p.webSetups??{}))for(const c of setup.commands)if('locator' in c&&!Object.hasOwn(p.locators,c.locator))throw new Error(`Unknown setup locator ${c.locator}`);
   for (const t of p.tests) {
     if(t.role&&!Object.hasOwn(p.roles??{},t.role))throw new Error('Unknown test role');
     if(t.anonymous&&(t.role||t.user))throw new Error('Anonymous tests cannot require an account or role');
@@ -83,6 +87,7 @@ export function validateProject(raw: unknown): Project {
     for (const r of t.requirementIds) if (!reqs.has(r)) throw new Error(`Unknown requirement ${r}`);
     for (const s of t.suites) if (!Object.hasOwn(p.suites,s)) throw new Error(`Unknown suite ${s}`);
     for (const d of t.dependsOn) if (!tests.has(d)) throw new Error(`Unknown dependency ${d}`);
+    for(const s of t.steps)if(s.input.setupIds!==undefined){if(!p.catalog.some(a=>a.id===s.action&&a.kind==='web'&&a.operation==='journey'))throw new Error('Web setups require a browser journey');for(const id of SetupIds.parse(s.input.setupIds))if(!Object.hasOwn(p.webSetups??{},id))throw new Error(`Unknown web setup ${id}`);}
     for (const s of t.steps) if (!actions.has(s.action)) throw new Error(`Unknown action ${s.action}`);
   }
   const active = new Set<string>(); const done = new Set<string>();

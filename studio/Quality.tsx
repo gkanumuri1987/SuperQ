@@ -1,3 +1,4 @@
+import SetupMaintenance from "./SetupMaintenance";
 import { useState } from "react";
 import type { WorkspaceState } from "../src/workspace-server";
 import type { catalogHealth } from "../src/catalog";
@@ -409,6 +410,7 @@ export default function Quality({
               </span>
             </div>
           ))}
+          <SetupMaintenance project={p} action={action} />
           <h3>Duplicate candidates</h3>
           {care.catalog.duplicateCandidates.length ? (
             care.catalog.duplicateCandidates.map((ids) => (

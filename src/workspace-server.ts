@@ -1,3 +1,5 @@
+import { extractSetup, setupCatalog } from "./web-setups.js";
+import { recordingContext } from "./web-auth.js";
 import { startRecording } from "./recorder.js";
 import { TraceStore, type TraceArtifact } from "./trace-artifacts.js";
 import {
@@ -8,7 +10,7 @@ import {
 } from "./coordinator.js";
 import { frameworkHealth } from "./framework-health.js";
 import { catalogHealth, ensureLocator } from "./catalog.js";
-import { LocatorDefinition } from "./web-commands.js";
+import { WebSetup, LocatorDefinition } from "./web-commands.js";
 import { stageRepair } from "./healing.js";
 import {
   IntakePlan,
@@ -138,6 +140,7 @@ export async function startWorkspace(
     candidateId: string;
     planId: string;
     fingerprint: string;
+    selection: { role?: string; user?: string; anonymous?: boolean };
     handle: Awaited<ReturnType<typeof startRecording>>;
   } | null = null;
   let coordination: ReturnType<typeof coordinate> | null = null;
@@ -731,6 +734,7 @@ export async function startWorkspace(
             frameworkCheck: state.frameworkCheck,
             healingPolicy: state.project.healing,
             catalog: state.project.catalog,
+            webSetups: setupCatalog(state.project),
             locators: state.project.locators,
             requirements: state.project.requirements,
             evidence: state.project.evidence,
@@ -1110,6 +1114,79 @@ export async function startWorkspace(
               z.number().int().min(0).parse(data.observationIndex),
             ),
           );
+        } else if (path === "/api/setups/update") {
+          const id = z.string().parse(data.id),
+            old = Object.hasOwn(state.project.webSetups ?? {}, id)
+              ? state.project.webSetups![id]
+              : undefined;
+          if (!old || canonical(data.base) !== canonical(old))
+            throw new Error("Shared setup changed; refresh before editing");
+          const p = structuredClone(state.project);
+          p.webSetups![id] = WebSetup.parse(data.definition);
+          for (const test of p.tests)
+            if (
+              test.steps.some(
+                (s) =>
+                  Array.isArray(s.input.setupIds) &&
+                  s.input.setupIds.includes(id),
+              )
+            ) {
+              test.status = "draft";
+              delete test.review;
+            }
+          change(
+            "Shared setup updated; affected tests need review",
+            validateProject(p),
+          );
+          if (state.intake) delete state.intake.review;
+        } else if (path === "/api/setups/extract") {
+          if (!state.intake || state.intake.generated)
+            throw new Error("Analyze a fresh intake plan");
+          assertPlanCurrent(
+            state.intake,
+            state.project,
+            state.planning,
+            state.sourceSnapshot,
+          );
+          const candidate = state.intake.candidates.find(
+            (c) => c.id === data.candidateId,
+          );
+          if (!candidate?.recipe) throw new Error("Map this case first");
+          const p = structuredClone(state.project),
+            recipe = Recipe.parse(
+              extractSetup(
+                p,
+                candidate.recipe,
+                z.string().parse(data.id),
+                z.string().trim().min(1).max(200).parse(data.title),
+                z.number().int().parse(data.count),
+              ),
+            );
+          change("Reusable web setup extracted", validateProject(p));
+          state.intake.context.project = projectFingerprint(state.project);
+          delete state.intake.review;
+          candidate.recipe = recipe;
+        } else if (path === "/api/setups/apply") {
+          if (!state.intake || state.intake.generated)
+            throw new Error("Analyze a fresh intake plan");
+          assertPlanCurrent(
+            state.intake,
+            state.project,
+            state.planning,
+            state.sourceSnapshot,
+          );
+          const candidate = state.intake.candidates.find(
+            (c) => c.id === data.candidateId,
+          );
+          if (candidate?.recipe?.kind !== "web")
+            throw new Error("Choose a mapped web case");
+          const id = z.string().parse(data.id);
+          if (!Object.hasOwn(state.project.webSetups ?? {}, id))
+            throw new Error("Unknown web setup");
+          updateCandidate({
+            candidateId: candidate.id,
+            patch: { recipe: { ...candidate.recipe, setupIds: [id] } },
+          });
         } else if (path === "/api/recorder/start") {
           if (!state.intake || state.intake.generated)
             throw new Error("Analyze a fresh intake plan first");
@@ -1129,10 +1206,26 @@ export async function startWorkspace(
           )
             throw new Error("Choose a current web candidate before recording");
           const env = state.project.environments[state.intake.environment]!;
-          if (env.login || env.sso)
-            throw new Error(
-              "The recorder currently supports anonymous environments. Map authenticated flows manually using saved accounts.",
-            );
+          const selection = {
+            role: candidate.role,
+            user:
+              z.string().min(1).optional().parse(data.user) ?? candidate.user,
+            anonymous:
+              z.boolean().optional().parse(data.anonymous) ??
+              candidate.anonymous,
+          };
+          const authContext = recordingContext(
+            state.project,
+            state.intake.environment,
+            selection,
+          );
+          const resolvedSelection = authContext.account
+            ? {
+                role: authContext.account.role,
+                user: authContext.account.id,
+                anonymous: false,
+              }
+            : { anonymous: true, role: "", user: "" };
           recordingStarting = true;
           let handle: Awaited<ReturnType<typeof startRecording>>;
           try {
@@ -1140,6 +1233,7 @@ export async function startWorkspace(
               env.baseURL,
               z.string().parse(data.path),
               options.recorderConnector,
+              { context: authContext, directory: sessionDirectory },
             );
           } finally {
             recordingStarting = false;
@@ -1148,6 +1242,7 @@ export async function startWorkspace(
             candidateId: candidate.id,
             planId: state.intake.id,
             fingerprint: projectFingerprint(state.project),
+            selection: resolvedSelection,
             handle,
           };
           state.revision++;
@@ -1183,7 +1278,7 @@ export async function startWorkspace(
           ];
           updateCandidate({
             candidateId: recording.candidateId,
-            patch: { recipe },
+            patch: { recipe, ...recording.selection },
           });
           await recording.handle.close();
           recording = null;

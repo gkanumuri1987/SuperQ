@@ -6,6 +6,9 @@ import {
   webCommandSchema,
 } from "./web-commands.js";
 import { Recipe } from "./intake.js";
+import { authenticatePage } from "./web-auth.js";
+import { loadSession, authDirectory } from "./auth-session.js";
+import type { Context } from "./runner.js";
 import { openAuthProxy } from "./auth-proxy.js";
 
 const Event = z
@@ -19,12 +22,13 @@ export type Recording = {
   notices: string[];
   closed: boolean;
 };
-/** A fresh, anonymous local browser. Input values never cross the page binding. */
+/** An isolated local browser. Authentication completes before recording. Input values never cross the page binding. */
 export async function startRecording(
   baseURL: string,
   path: string,
   connector = (proxy: { server: string; bypass: string }) =>
     chromium.launch({ headless: false, proxy }),
+  auth?: { context: Context; directory?: string },
 ) {
   RelativePath.parse(path);
   const startURL = new URL(path, baseURL);
@@ -33,6 +37,19 @@ export async function startRecording(
       "Use a starting path without query strings or fragments; map them explicitly after recording",
     );
   const origin = new URL(baseURL).origin;
+  if (auth && auth.context.baseURL !== baseURL)
+    throw new Error(
+      "Recording authentication must match the target environment",
+    );
+  const storageState =
+    auth?.context.account && auth.context.sso
+      ? await loadSession(
+          auth.context.project,
+          auth.context.environment!,
+          auth.context.account.id,
+          auth.directory ?? authDirectory(),
+        )
+      : undefined;
   const network = await openAuthProxy(new Set([origin]));
   let browser: Browser;
   try {
@@ -60,12 +77,17 @@ export async function startRecording(
   const timer = setTimeout(() => void close(), 600000);
   timer.unref();
   try {
-    const context = await browser.newContext({ serviceWorkers: "block" });
+    const context = await browser.newContext({
+      storageState,
+      serviceWorkers: "block",
+    });
     await context.route("**/*", (route) =>
       new URL(route.request().url()).origin === origin
         ? route.continue()
         : route.abort(),
     );
+    const page = await context.newPage();
+    if (auth) await authenticatePage(page, auth.context);
     await context.exposeBinding(
       "__superqRecord",
       async ({ page, frame }, raw: unknown) => {
@@ -130,7 +152,7 @@ export async function startRecording(
       },true);
     })();`,
     });
-    const page = await context.newPage();
+
     context.on("page", (popup) => {
       if (popup !== page) {
         notice("Popups are unsupported; map this flow manually.");
@@ -173,7 +195,7 @@ export async function startRecording(
   } catch {
     await close();
     throw new Error(
-      "Recording could not start; check the application URL and local browser",
+      "Recording could not start; check the application URL, account/session and local browser",
     );
   }
 }

@@ -1,3 +1,4 @@
+import { setupCatalog } from "./web-setups.js";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import {
@@ -87,6 +88,7 @@ export function coordinate(
     requirements: project.requirements,
     evidence: project.evidence,
     catalog: project.catalog,
+    webSetups: setupCatalog(project),
     locators: project.locators,
     existingTitles: project.tests.map((t) => t.title),
     candidates: plan.candidates,

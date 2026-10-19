@@ -3074,6 +3074,13 @@ function StepEditor({
         )}
         {action?.kind === "web" && (
           <div className="browser-builder">
+            {Array.isArray(step.input.setupIds) &&
+              step.input.setupIds.length > 0 && (
+                <p>
+                  Shared setup: {step.input.setupIds.map(String).join(", ")}.
+                  Runs before this case’s commands in the same isolated browser.
+                </p>
+              )}
             {commands.map((c, i) => (
               <div className="browser-command" key={i}>
                 <select

@@ -17,6 +17,7 @@ export function stageRepair(
   const observation = result.observations?.[observationIndex];
   if (
     !observation ||
+    observation.setupId ||
     observation.operation !== "web.heal" ||
     observation.status !== "passed" ||
     !observation.locator ||

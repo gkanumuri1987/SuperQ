@@ -546,7 +546,8 @@ export default function Intake({
                     .map((o, i) => (
                       <p key={`observation-${i}`}>
                         Step {o.step}
-                        {o.command ? `, command ${o.command}` : ""}:{" "}
+                        {o.command ? `, command ${o.command}` : ""}
+                        {o.setupId ? ` in setup ${o.setupId}` : ""}:{" "}
                         {o.issue ?? o.operation}
                         {o.locator ? ` · locator ${o.locator}` : ""}
                         {o.assertionPath ? ` · ${o.assertionPath}` : ""}
@@ -656,6 +657,9 @@ function RecipeSummary({ recipe }: { recipe: Recipe }) {
     </ol>
   ) : (
     <ol>
+      {recipe.setupIds?.length && (
+        <li>Shared setup: {recipe.setupIds.join(", ")}</li>
+      )}
       {recipe.commands.map((c, i) => (
         <li key={i}>
           {"path" in c

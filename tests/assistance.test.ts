@@ -262,7 +262,7 @@ test("workspace integrates recorder, bounded local agents and authenticated trac
     await page.goto(`${app.url}/#intake`);
     await page.getByText("Capture a flow or ask your local agents").waitFor();
     await page
-      .getByText("Record an anonymous web flow", { exact: true })
+      .getByText("Record a web flow", { exact: true })
       .click();
     await page.getByRole("button", { name: "Open recording browser" }).click();
     await expect

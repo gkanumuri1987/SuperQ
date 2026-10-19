@@ -18,7 +18,9 @@ export function reviewFingerprint(p:Project,t:TestCase){
   const {review:_,...test}=t;
   const requirements=p.requirements.filter(r=>t.requirementIds.includes(r.id));
   const evidenceIds=new Set([...t.evidenceIds,...requirements.flatMap(r=>r.evidenceIds)]);
-  return createHash('sha256').update(canonical({test,requirements,evidence:p.evidence.filter(e=>evidenceIds.has(e.id))})).digest('hex');
+  const setupIds=[...new Set(t.steps.flatMap(s=>Array.isArray(s.input.setupIds)?s.input.setupIds as string[]:[]))];
+  const setups=setupIds.map(id=>({id,definition:p.webSetups?.[id],locators:p.webSetups?.[id]?.commands.flatMap(c=>'locator' in c?[p.locators[c.locator]]:[])}));
+  return createHash('sha256').update(canonical({test,requirements,...(setups.length?{setups}:{}),evidence:p.evidence.filter(e=>evidenceIds.has(e.id))})).digest('hex');
 }
 
 export function isReviewCurrent(p:Project,t:TestCase){return Boolean(t.review&&t.review.digest===reviewFingerprint(p,t));}

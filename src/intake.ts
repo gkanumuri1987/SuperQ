@@ -1,3 +1,5 @@
+import { setupCommands } from "./web-setups.js";
+import { SetupIds } from "./web-commands.js";
 import {
   LocatorDefinition as locator,
   RelativePath as relativePath,
@@ -36,12 +38,13 @@ export const Recipe = z.discriminatedUnion("kind", [
   z
     .object({
       kind: z.literal("web"),
+      setupIds: SetupIds.optional(),
       commands: z.array(webCommandSchema(locator)).min(1).max(100),
     })
     .strict()
     .refine(
       (r) =>
-        r.commands[0]?.type === "goto" &&
+        (r.commands[0]?.type === "goto" || !!r.setupIds?.length) &&
         r.commands.some((c) => c.type.startsWith("expect")),
       "A web flow needs initial navigation and an explicit native assertion",
     ),
@@ -639,7 +642,10 @@ export function materialize(project: Project, plan: IntakePlan): Project {
       });
       steps.push({
         action: actionId,
-        input: { commands },
+        input: {
+          commands,
+          ...(c.recipe.setupIds?.length ? { setupIds: c.recipe.setupIds } : {}),
+        },
         assertions,
         save: {},
       });
@@ -811,7 +817,19 @@ export function preflight(project: Project, plan: IntakePlan) {
             : {}),
         };
         const variables = [
-          ...canonical(c.recipe).matchAll(/\$\{([^}]+)\}/g),
+          ...canonical({
+            recipe: c.recipe,
+            setups:
+              c.recipe?.kind === "web"
+                ? setupCommands(p, c.recipe.setupIds).map((e) => ({
+                    ...e,
+                    definition:
+                      "locator" in e.command
+                        ? p.locators[e.command.locator]
+                        : undefined,
+                  }))
+                : [],
+          }).matchAll(/\$\{([^}]+)\}/g),
         ].map((m) => m[1]!);
         const missing = [
           ...new Set(

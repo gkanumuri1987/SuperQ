@@ -1,6 +1,8 @@
+import { journeyCommands } from "./web-setups.js";
+import { authenticatePage } from "./web-auth.js";
 import type { TraceStore } from "./trace-artifacts.js";
 import { webCommandSchema, resolveLocator } from "./web-commands.js";
-import { loadSession, authDirectory, totp, AuthenticationRequired } from './auth-session.js';
+import { loadSession, authDirectory } from './auth-session.js';
 import { request, expect, type Browser } from '@playwright/test';
 import { Client } from 'pg';
 import { MongoClient } from 'mongodb';
@@ -33,7 +35,7 @@ export function createAdapters(rawProfile:unknown={provider:'local'}, connector:
   });
   registry.register('web:journey',async(input,ctx)=>{
     const command=webCommandSchema(z.string().min(1),z.string().min(1));
-    const i=z.object({commands:z.array(command).min(1)}).strict().parse(input);
+    const entries=journeyCommands(ctx.project,input);
     // One journey owns one browser session, including cloud sessions. No mutable
     // session is shared across parallel tests or retries.
     const storageState=ctx.account&&ctx.sso?await loadSession(ctx.project,ctx.environment!,ctx.account.id,sessionDirectory):undefined;
@@ -47,40 +49,25 @@ export function createAdapters(rawProfile:unknown={provider:'local'}, connector:
       const origin=new URL(ctx.baseURL).origin;
       await context.route('**/*',async route=> { const url=new URL(route.request().url()); if(url.origin===origin) await route.continue(); else await route.abort(); });
       const page=await context.newPage(); page.setDefaultTimeout(15_000); const text:Record<string,string>={};const checkpoints:Record<string,unknown>={};const repairBudget=ctx.repairBudget??{remaining:1};
-      if(ctx.account&&ctx.sso){
-        try{await page.goto(new URL(ctx.sso.successPath,ctx.baseURL).href);await expect(page).toHaveURL(new URL(ctx.sso.successPath,ctx.baseURL).href,{timeout:5000});await expect(page.getByText(String(interpolate(ctx.sso.successText,ctx.data)),{exact:true})).toBeVisible({timeout:5000});}
-        catch{throw new AuthenticationRequired();}
-      }
-      if(ctx.account&&ctx.login){
-        try{
-        if(!ctx.account.username||!ctx.account.password)throw new Error('Login requires configured username and password secret');
-        const loginURL=new URL(ctx.login.path,ctx.baseURL),successURL=new URL(ctx.login.successPath,ctx.baseURL);
-        if(loginURL.origin!==origin||successURL.origin!==origin)throw new Error('Cross-origin login denied');
-        await page.goto(loginURL.href);
-        await page.getByLabel(ctx.login.usernameLabel,{exact:true}).fill(ctx.account.username);
-        await page.getByLabel(ctx.login.passwordLabel,{exact:true}).fill(ctx.account.password);
-        await page.getByRole('button',{name:ctx.login.submitButton,exact:true}).click();
-        if(ctx.login.mfa){await page.getByLabel(ctx.login.mfa.codeLabel,{exact:true}).waitFor({state:'visible'});if(!ctx.account.mfaSecret)throw new AuthenticationRequired('Configure the TOTP seed secret for this test account.');await page.getByLabel(ctx.login.mfa.codeLabel,{exact:true}).fill(totp(ctx.account.mfaSecret,ctx.login.mfa));await page.getByRole('button',{name:ctx.login.mfa.submitButton,exact:true}).click();}
-        await expect(page).toHaveURL(successURL.href);
-        }catch{throw new AuthenticationRequired('Form sign-in or MFA was not accepted. Check the account, authentication settings and provider response.');}
-      }
+      await authenticatePage(page,ctx);
       if(traces){try{stopTrace=await traces.start(context,ctx.testId??'journey',ctx.attempt??1);}catch{traces.warn();}}
       let commandIndex=0;
-      for(const c of i.commands) {
-        commandIndex++;
+      for(const entry of entries) {
+        const c=command.parse(entry.setupId?interpolate(entry.command,ctx.data):entry.command);commandIndex=entry.index;
+        const observe=(o:Parameters<NonNullable<typeof ctx.observe>>[0])=>ctx.observe?.({...o,...(entry.setupId?{setupId:entry.setupId}:{})});
         let matches:number|undefined;
         try {
-        if(c.type==='goto') { const url=new URL(c.path,ctx.baseURL); if(url.origin!==origin) throw new Error('Cross-origin navigation denied'); await page.goto(url.href);ctx.observe?.({command:commandIndex,operation:'web.goto',status:'passed'}); continue; }
+        if(c.type==='goto') { const url=new URL(c.path,ctx.baseURL); if(url.origin!==origin) throw new Error('Cross-origin navigation denied'); await page.goto(url.href);observe({command:commandIndex,operation:'web.goto',status:'passed'}); continue; }
         if(c.type==='expectURL') {
           const url=new URL(c.path,ctx.baseURL);if(url.origin!==origin)throw new Error('Cross-origin expectation denied');
           await expect(page).toHaveURL(url.href,{timeout:c.timeoutMs});checkpoints[String(commandIndex)]=c.path;
-          ctx.observe?.({command:commandIndex,operation:'web.expectURL',status:'passed'});continue;
+          observe({command:commandIndex,operation:'web.expectURL',status:'passed'});continue;
         }
         const definition=(id:string)=>interpolate(ctx.project.locators[id],ctx.data) as typeof ctx.project.locators[string];
         const def=definition(c.locator);if(!def)throw new Error('Unknown catalog locator');
         let locator=resolveLocator(page,def);
         matches=await locator.count();
-        if(matches===0 && ctx.project.healing?.enabled && ctx.project.healing.locators[c.locator]?.length && profile.provider==='local' && repairBudget.remaining>0 && ctx.testId && ctx.project.tests.find(t=>t.id===ctx.testId)?.evidenceIds.length && !(c.type==='expectCount' && c.count===0)) {
+        if(!entry.setupId && matches===0 && ctx.project.healing?.enabled && ctx.project.healing.locators[c.locator]?.length && profile.provider==='local' && repairBudget.remaining>0 && ctx.testId && ctx.project.tests.find(t=>t.id===ctx.testId)?.evidenceIds.length && !(c.type==='expectCount' && c.count===0)) {
           try{await locator.waitFor({state:'attached',timeout:ctx.project.healing.waitMs});}catch{}
           matches=await locator.count();
           if(matches===0) {
@@ -92,11 +79,11 @@ export function createAdapters(rawProfile:unknown={provider:'local'}, connector:
             }
             if(eligible.length===1 && !ambiguous && await locator.count()===0) {
               repairBudget.remaining--;
-              ctx.observe?.({command:commandIndex,operation:`web.${c.type}`,status:'failed',locator:c.locator,issue:'control-unavailable'});
+              observe({command:commandIndex,operation:`web.${c.type}`,status:'failed',locator:c.locator,issue:'control-unavailable'});
               locator=eligible[0]!.locator;
-              ctx.observe?.({command:commandIndex,operation:'web.heal',status:'passed',locator:c.locator,replacement:eligible[0]!.id});
+              observe({command:commandIndex,operation:'web.heal',status:'passed',locator:c.locator,replacement:eligible[0]!.id});
               matches=1;
-            }else if(await locator.count()===0){ctx.observe?.({command:commandIndex,operation:"web.heal",status:"failed",locator:c.locator,issue:ambiguous||eligible.length>1?"ambiguous-control":"control-unavailable"});}
+            }else if(await locator.count()===0){observe({command:commandIndex,operation:"web.heal",status:"failed",locator:c.locator,issue:ambiguous||eligible.length>1?"ambiguous-control":"control-unavailable"});}
           }
         }
         if(c.type==='click') await locator.click();
@@ -109,9 +96,9 @@ export function createAdapters(rawProfile:unknown={provider:'local'}, connector:
         else if(c.type==='expectVisible') {await expect(locator).toBeVisible({timeout:c.timeoutMs});checkpoints[String(commandIndex)]=true;}
         else if(c.type==='expectCount') {await expect(locator).toHaveCount(c.count,{timeout:c.timeoutMs});checkpoints[String(commandIndex)]=await locator.count();}
         else {await locator.waitFor({state:'visible'});text[c.captureAs??c.locator]=await locator.innerText();}
-        ctx.observe?.({command:commandIndex,operation:`web.${c.type}`,status:'passed',locator:c.locator});
+        observe({command:commandIndex,operation:`web.${c.type}`,status:'passed',locator:c.locator});
         }catch(error){
-          ctx.observe?.({command:commandIndex,operation:`web.${c.type}`,status:'failed',...('locator' in c?{locator:c.locator}:{}),issue:c.type==='goto'?'navigation-failed':matches===0?'control-unavailable':matches&&matches>1?'ambiguous-control':c.type.startsWith('expect')?'expectation-failed':'interaction-failed'});
+          observe({command:commandIndex,operation:`web.${c.type}`,status:'failed',...('locator' in c?{locator:c.locator}:{}),issue:c.type==='goto'?'navigation-failed':matches===0?'control-unavailable':matches&&matches>1?'ambiguous-control':c.type.startsWith('expect')?'expectation-failed':'interaction-failed'});
           throw error;
         }
       }

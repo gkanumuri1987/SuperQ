@@ -1,3 +1,4 @@
+import SetupFlows from "./SetupFlows";
 import { useState } from "react";
 import type { WorkspaceState } from "../src/workspace-server";
 import type { Recording } from "../src/recorder";
@@ -17,7 +18,9 @@ export default function Assistance({
     [locator, setLocator] = useState(""),
     [expected, setExpected] = useState(""),
     [strategy, setStrategy] = useState("testId"),
-    [pending, setPending] = useState(false);
+    [pending, setPending] = useState(false),
+    [user, setUser] = useState(""),
+    [anonymous, setAnonymous] = useState(false);
   const plan = state.intake,
     job = state.coordination;
   const act = async (p: string, b: Record<string, unknown>) => {
@@ -34,7 +37,7 @@ export default function Assistance({
       <h2>Capture a flow or ask your local agents</h2>
       <p>Optional help. Every result returns to the same plan for QE review.</p>
       <details open={!!recording}>
-        <summary>Record an anonymous web flow</summary>
+        <summary>Record a web flow</summary>
         <p>
           A local Chromium window opens. Use synthetic data. Entered values
           become placeholders; passwords and unsupported controls are skipped.
@@ -49,6 +52,8 @@ export default function Assistance({
               void act("recorder/start", {
                 candidateId: candidate || plan.candidates[0]?.id,
                 path,
+                ...(user ? { user } : {}),
+                anonymous,
               });
             }}
           >
@@ -65,6 +70,38 @@ export default function Assistance({
                 ))}
               </select>
             </label>
+            <label>
+              Recording account
+              <select
+                aria-label="Recording account"
+                value={user}
+                disabled={anonymous}
+                onChange={(e) => setUser(e.target.value)}
+              >
+                <option value="">Use case role / environment default</option>
+                {Object.entries(
+                  state.project.environments[plan.environment]?.users ?? {},
+                ).map(([id, u]) => (
+                  <option value={id} key={id}>
+                    {id} ({u.role})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={anonymous}
+                onChange={(e) => setAnonymous(e.target.checked)}
+              />
+              Record without authentication
+            </label>
+            <p>
+              Configured form login/MFA or a current saved SSO session is
+              verified before capture begins. Complete SSO sign-in in
+              Environments & accounts first. Credentials and sign-in steps are
+              excluded from the draft.
+            </p>
             <label>
               Starting application path
               <input
@@ -170,6 +207,11 @@ export default function Assistance({
           </>
         )}
       </details>
+      <SetupFlows
+        state={state}
+        disabled={pending || !!recording || job?.state === "running"}
+        action={action}
+      />
       <details open={job?.state === "running"}>
         <summary>Three-agent coverage review · local Ollama</summary>
         <p>

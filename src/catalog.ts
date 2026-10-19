@@ -54,6 +54,7 @@ export function catalogHealth(p: Project) {
     usedLocators.add(old);
     alternatives.forEach((a) => usedLocators.add(a));
   }
+  for(const setup of Object.values(p.webSetups??{}))for(const c of setup.commands)if('locator' in c)usedLocators.add(c.locator);
   const groups = new Map<string, string[]>();
   for (const t of p.tests)
     if (t.steps.length) {
@@ -81,7 +82,7 @@ export function catalogHealth(p: Project) {
       testIds: p.tests
         .filter((t) =>
           t.steps.some((s) =>
-            JSON.stringify(s.input).includes(JSON.stringify(id)),
+            JSON.stringify({...s.input,setups:Array.isArray(s.input.setupIds)?s.input.setupIds.map(k=>p.webSetups?.[String(k)]):[]}).includes(JSON.stringify(id)),
           ),
         )
         .map((t) => t.id),

@@ -83,3 +83,30 @@ export function resolveLocator(
             { name: definition.name, exact: true },
           );
 }
+
+export const WebSetup = z
+  .object({
+    title: z.string().trim().min(1).max(200),
+    commands: z
+      .array(webCommandSchema(z.string().min(1)))
+      .min(1)
+      .max(40),
+  })
+  .strict()
+  .refine(
+    (s) =>
+      s.commands[0]?.type === "goto" &&
+      s.commands.every((c) =>
+        ["goto", "click", "fill", "selectOption", "check", "uncheck"].includes(
+          c.type,
+        ),
+      ),
+    "Setup needs initial navigation and interaction commands only; assertions belong to each test",
+  );
+export const SetupIds = z
+  .array(z.string().min(1))
+  .max(4)
+  .refine(
+    (ids) => new Set(ids).size === ids.length,
+    "Reuse each setup at most once per journey",
+  );
