@@ -66,6 +66,7 @@ export default function Intake({
   const [repositoryPath, setRepositoryPath] = useState(
     state.connections.localRepository,
   );
+  const [autoDiscover, setAutoDiscover] = useState(true);
   const [sourcePaths, setSourcePaths] = useState(
     state.connections.paths.join("\n"),
   );
@@ -209,6 +210,7 @@ export default function Intake({
                   environment,
                   baseURL: applicationURL,
                   localRepository: repositoryPath,
+                  autoDiscover,
                   paths: sourcePaths
                     .split(/\r?\n/)
                     .map((p) => p.trim())
@@ -220,7 +222,8 @@ export default function Intake({
           >
             <h3>Connect your repository</h3>
             <p>
-              Use a local checkout. SuperQ reads the committed files you choose.
+              Use a local checkout. SuperQ discovers committed documentation and
+              application code automatically.
             </p>
             <label>
               Application URL
@@ -241,24 +244,84 @@ export default function Intake({
                 placeholder="/path/to/application"
               />
             </label>
-            <label>
-              Files to analyze
-              <textarea
-                required
-                rows={3}
-                value={sourcePaths}
-                onChange={(e) => setSourcePaths(e.target.value)}
-                placeholder={"src/routes.ts\nsrc/checkout.tsx"}
+            <label className="intake-check">
+              <input
+                type="checkbox"
+                checked={autoDiscover}
+                onChange={(e) => setAutoDiscover(e.target.checked)}
               />
-              <small>
-                One repository-relative file path per line. Choose the feature
-                you want to automate. Exclude credentials and secrets.
-              </small>
+              Discover application code and documentation automatically
             </label>
+            <p>
+              Includes readable README, docs, guides, architecture notes and API
+              specifications. External links are not followed. Filename filters
+              exclude common secret files; review your repository for sensitive
+              content.
+            </p>
+            {!autoDiscover && (
+              <label>
+                Files to analyze
+                <textarea
+                  required
+                  rows={3}
+                  value={sourcePaths}
+                  onChange={(e) => setSourcePaths(e.target.value)}
+                  placeholder={"src/routes.ts\nsrc/checkout.tsx"}
+                />
+                <small>
+                  One repository-relative file path per line. Choose the feature
+                  you want to automate. Exclude credentials and secrets.
+                </small>
+              </label>
+            )}
             <button className="button primary" disabled={pending}>
               {pending ? "Connecting…" : "Connect & scan"}
             </button>
           </form>
+        )}
+        {state.sourceSnapshot?.discovery && (
+          <details className="intake-candidate">
+            <summary>
+              Repository analysis scope ·{" "}
+              {
+                state.sourceSnapshot.discovery.included.filter(
+                  (f) => f.kind === "documentation",
+                ).length
+              }{" "}
+              documents discovered · {state.sourceSnapshot.files.length} files
+              loaded
+            </summary>
+            <p>
+              Inventoried {state.sourceSnapshot.discovery.trackedFiles}{" "}
+              committed files. Initial context is limited to 64 KB and 100
+              files. Loaded evidence informs test proposals; it does not prove
+              complete application coverage. Confirm expected behavior during
+              review.
+            </p>
+            <h3>Loaded evidence</h3>
+            <ul>
+              {state.sourceSnapshot.discovery.included.map((f) => (
+                <li key={f.path}>
+                  {f.path} · {f.kind}
+                </li>
+              ))}
+            </ul>
+            <h3>
+              Not included ({state.sourceSnapshot.discovery.skipped.length})
+            </h3>
+            <p>
+              For remaining modules, reconnect with automatic discovery turned
+              off and select a focused set of files. PDF, Word and binary
+              documents need a committed text export.
+            </p>
+            <ul>
+              {state.sourceSnapshot.discovery.skipped.map((f) => (
+                <li key={f.path}>
+                  {f.path} · {f.reason}
+                </li>
+              ))}
+            </ul>
+          </details>
         )}
         <p className="automate-note">
           Stories and documentation are optional. Your code stays read-only.

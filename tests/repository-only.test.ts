@@ -208,6 +208,9 @@ test("repository-only Studio generates cited proposals without stories/docs/test
       .click();
     await page.getByLabel("Repository folder", { exact: true }).fill(dir);
     await page
+      .getByLabel("Discover application code and documentation automatically")
+      .uncheck();
+    await page
       .getByLabel("Files to analyze", { exact: false })
       .fill("health.ts");
     const connecting = page.waitForRequest((r) =>

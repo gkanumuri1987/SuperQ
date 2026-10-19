@@ -78,6 +78,7 @@ import { createAdapters } from "./adapters.js";
 import { createReport, writeReports, type Report } from "./reporting.js";
 import { Planner } from "./ai.js";
 import { ollamaProvider } from "./ollama.js";
+import { discoverRepository } from "./repository-discovery.js";
 import { snapshot, changes, type Snapshot } from "./knowledge.js";
 import { Planning } from "./planning.js";
 export type WorkspaceState = {
@@ -100,6 +101,7 @@ export type WorkspaceState = {
     documentation: string;
     localRepository: string;
     paths: string[];
+    autoDiscover?: boolean;
     watch: boolean;
     lastChecked?: string;
     lastError?: string;
@@ -264,18 +266,23 @@ export async function startWorkspace(
     if (scanning) throw new Error("A source check is already running");
     scanning = true;
     try {
-      if (!state.connections.localRepository || !state.connections.paths.length)
+      if (
+        !state.connections.localRepository ||
+        (!state.connections.autoDiscover && !state.connections.paths.length)
+      )
         throw new Error(
           "Configure a local repository and explicit source paths first",
         );
       if (busy)
         throw new Error("Wait for the active run to finish before scanning");
       const previous = state.sourceSnapshot;
-      const next = await snapshot(
-        state.connections.localRepository,
-        state.connections.paths,
-        !!previous,
-      );
+      const next = state.connections.autoDiscover
+        ? await discoverRepository(state.connections.localRepository)
+        : await snapshot(
+            state.connections.localRepository,
+            state.connections.paths,
+            !!previous,
+          );
       state.connections.lastChecked = new Date().toISOString();
       delete state.connections.lastError;
       if (previous && changes(previous, next).length) {
@@ -339,6 +346,8 @@ export async function startWorkspace(
           `Read-only snapshot ${next.revision.slice(0, 7)} saved.`,
         );
       state.sourceSnapshot = next;
+      if (state.connections.autoDiscover)
+        state.connections.paths = next.files.map((f) => f.path);
       state.revision++;
       await save();
     } finally {
@@ -1431,7 +1440,8 @@ export async function startWorkspace(
               environment: z.string(),
               baseURL: z.url(),
               localRepository: z.string().trim().min(1),
-              paths: z.array(z.string().trim().min(1)).min(1).max(100),
+              paths: z.array(z.string().trim().min(1)).max(100).default([]),
+              autoDiscover: z.boolean().default(false),
             })
             .parse(data);
           if (!Object.hasOwn(state.project.environments, input.environment))
@@ -1441,14 +1451,17 @@ export async function startWorkspace(
           const validated = validateProject(project);
           // Read and validate before changing workspace configuration; failed scans are atomic.
           const startingRevision = state.revision;
-          const sources = await snapshot(input.localRepository, input.paths);
+          const sources = input.autoDiscover
+            ? await discoverRepository(input.localRepository)
+            : await snapshot(input.localRepository, input.paths);
           if (state.revision !== startingRevision)
             throw new Error("Workspace changed while connecting. Try again.");
           change("Application repository connected", validated);
           state.connections = {
             ...state.connections,
             localRepository: input.localRepository,
-            paths: input.paths,
+            paths: sources.files.map((f) => f.path),
+            autoDiscover: input.autoDiscover,
             lastChecked: new Date().toISOString(),
           };
           delete state.connections.lastError;
@@ -1662,7 +1675,11 @@ export async function startWorkspace(
           const env = Object.keys(p.environments)[0]!;
           p.environments[env]!.baseURL = input.baseURL;
           change("Workspace setup updated", validateProject(p));
-          state.connections = { ...state.connections, ...input };
+          state.connections = {
+            ...state.connections,
+            ...input,
+            autoDiscover: false,
+          };
           state.sourceSnapshot = undefined;
           state.plan = null;
           state.sourceAlerts = [];
