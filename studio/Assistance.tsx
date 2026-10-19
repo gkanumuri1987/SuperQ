@@ -24,6 +24,8 @@ export default function Assistance({
     [anonymous, setAnonymous] = useState(false);
   const plan = state.intake,
     job = state.coordination;
+  const repositoryOnly =
+    !!state.sourceSnapshot?.files.length && !state.planning?.cases.length;
   const act = async (p: string, b: Record<string, unknown>) => {
     setPending(true);
     try {
@@ -213,8 +215,20 @@ export default function Assistance({
         disabled={pending || !!recording || job?.state === "running"}
         action={action}
       />
-      <details open={job?.state === "running"}>
-        <summary>Three-agent coverage review · local Ollama</summary>
+      <details open={job?.state === "running" || repositoryOnly}>
+        <summary>
+          {repositoryOnly
+            ? "Generate test cases from repository"
+            : "Three-agent coverage review · local Ollama"}
+        </summary>
+        {repositoryOnly && (
+          <p>
+            No stories, documentation or existing tests required. AI reads the
+            scanned implementation and proposes observed functionality, test
+            cases and mappings. Confirm intended behavior and unresolved
+            questions before generating automation.
+          </p>
+        )}
         <p>
           Analyst → test designer → independent reviewer. At most three local
           model calls, 4,000 output tokens per call, three-minute deadline. No
@@ -244,7 +258,9 @@ export default function Assistance({
             className="button"
             disabled={pending || !!recording || job?.state === "running"}
           >
-            Review coverage with local agents
+            {repositoryOnly
+              ? "Analyze functionality & propose tests"
+              : "Review coverage with local agents"}
           </button>
         </form>
         {job && (
@@ -259,6 +275,20 @@ export default function Assistance({
             ))}
             {job.error && <p>{job.error}</p>}
             <AIReview job={job} />
+            {!!job.analysis?.functionality?.length && (
+              <section aria-label="Observed application functionality">
+                <h3>Observed functionality · confirm intended behavior</h3>
+                {job.analysis.functionality.map((f, i) => (
+                  <details key={i}>
+                    <summary>{f.name}</summary>
+                    <p>
+                      {f.source} · {f.revision.slice(0, 8)}
+                    </p>
+                    <pre>{f.excerpt}</pre>
+                  </details>
+                ))}
+              </section>
+            )}
             {job.analysis?.questions.map((q, i) => (
               <p key={i}>{q}</p>
             ))}

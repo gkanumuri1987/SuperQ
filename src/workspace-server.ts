@@ -604,7 +604,9 @@ export async function startWorkspace(
       project: projectFingerprint(state.project),
     };
   }
-  async function trialIntake() {
+  async function trialIntake(
+    selection: { profile?: string; acknowledgeCloud?: boolean } = {},
+  ) {
     const plan = state.intake;
     if (!plan?.generated)
       throw new Error("Generate reviewed draft automation first");
@@ -616,13 +618,15 @@ export async function startWorkspace(
     const local = Object.entries(state.project.browsers).find(
       ([, p]) => p.provider === "local",
     );
-    if (!local)
-      throw new Error("Configure a local browser profile for intake trials");
+    const profile = selection.profile ?? local?.[0];
+    if (!profile)
+      throw new Error("Choose a configured browser profile for intake trials");
     return launchRun(
       {
         environment: plan.environment,
         suite: "intake",
-        profile: local[0],
+        profile,
+        acknowledgeCloud: selection.acknowledgeCloud,
         workers: 1,
         testIds: plan.generated.testIds,
         validateDrafts: true,
@@ -1460,7 +1464,13 @@ export async function startWorkspace(
           activity("Intake plan reviewed", state.intake.review!.reviewer);
         } else if (path === "/api/intake/generate") await generateIntake();
         else if (path === "/api/intake/trial") {
-          json(res, 202, { id: await trialIntake() });
+          const selection = z
+            .object({
+              profile: z.string().min(1).optional(),
+              acknowledgeCloud: z.boolean().optional(),
+            })
+            .parse(data);
+          json(res, 202, { id: await trialIntake(selection) });
           return;
         } else if (path === "/api/agent-access") {
           const enabled = z.boolean().parse(data.enabled);

@@ -27,9 +27,13 @@ export default function Intake({
   go,
 }: Props) {
   const [environment, setEnvironment] = useState(
-    Object.keys(state.project.environments)[0] ?? "",
+    state.intake?.environment ??
+      Object.keys(state.project.environments)[0] ??
+      "",
   );
-  const [preference, setPreference] = useState<"api" | "web">("web");
+  const [preference, setPreference] = useState<"api" | "web">(
+    state.intake?.preference ?? "web",
+  );
   const [reviewer, setReviewer] = useState("");
   const [acknowledge, setAcknowledge] = useState(false);
   const [edit, setEdit] = useState<string | null>(null);
@@ -41,6 +45,16 @@ export default function Intake({
     new Date().toISOString().slice(0, 10),
   );
   const [error, setError] = useState("");
+  const [trialProfile, setTrialProfile] = useState(
+    Object.entries(state.project.browsers).find(
+      ([, p]) => p.provider === "local",
+    )?.[0] ??
+      Object.keys(state.project.browsers)[0] ??
+      "",
+  );
+  const [cloudConsent, setCloudConsent] = useState(false);
+  const chosenProfile = state.project.browsers[trialProfile];
+  const cloudTrial = !!chosenProfile && chosenProfile.provider !== "local";
   const plan = status.plan;
   const act = async (path: string, body: Record<string, unknown>) => {
     setPending(true);
@@ -65,8 +79,10 @@ export default function Intake({
         <span className="eyebrow">GUIDED AUTOMATION</span>
         <h1>Start with what you have.</h1>
         <p>
-          Connect source evidence, review a clear plan, then try the automation.
-          Your QE stays in control of scope and expected results.
+          Start with your application repository—even without stories,
+          documentation or manual tests. Discover functionality, review proposed
+          test cases, then generate and verify automation locally or in the
+          cloud.
         </p>
       </div>
       <div className="intake-progress" aria-label="Workflow stages">
@@ -100,7 +116,7 @@ export default function Intake({
             )}
           </div>
           <div>
-            <strong>Manual test inventory</strong>
+            <strong>Manual test inventory · optional</strong>
             <p>{state.planning?.cases.length ?? 0} imported manual cases</p>
             <button className="button" onClick={() => setImporting(!importing)}>
               Add manual cases
@@ -111,10 +127,12 @@ export default function Intake({
           </div>
         </div>
         <p className="automate-note">
-          Repo only: propose scenarios from Gherkin and OpenAPI JSON. Inventory
-          only: check scope and prerequisites. Both: reconcile candidates and
-          flag coverage questions. A linked URL alone does not supply repository
-          content.
+          Repository only: scan committed implementation files, then use local
+          AI or your corporate coding agent to propose source-cited tests.
+          Gherkin and OpenAPI JSON also produce candidates without AI. Existing
+          tests, stories and documentation enrich the analysis but are optional.
+          Configure a read-only local checkout and allowed file paths; a linked
+          URL alone does not supply repository content.
         </p>
         {importing && (
           <form
@@ -324,9 +342,10 @@ export default function Intake({
           </details>
           {!plan.candidates.length && (
             <p>
-              No supported scenarios found. Import manual cases or scan .feature
-              / OpenAPI JSON files. Other source files remain available to your
-              coding agent for grounded proposals.
+              No deterministic scenarios found yet. For implementation-only
+              repositories, use “Generate test cases from repository” above or
+              connect your corporate coding agent below. You do not need to
+              create documentation or manual tests first.
             </p>
           )}
           {plan.candidates.map((c) => (
@@ -570,17 +589,58 @@ export default function Intake({
             evaluates every assertion. Failed commands, account problems and
             prerequisite failures remain visible.
           </p>
+          <label>
+            Trial browser profile
+            <select
+              value={trialProfile}
+              onChange={(e) => {
+                setTrialProfile(e.target.value);
+                setCloudConsent(false);
+              }}
+            >
+              {Object.entries(state.project.browsers).map(([id, p]) => (
+                <option key={id} value={id}>
+                  {id} · {p.browser} · {p.provider}
+                </option>
+              ))}
+            </select>
+          </label>
+          {cloudTrial && (
+            <label>
+              <input
+                type="checkbox"
+                checked={cloudConsent}
+                onChange={(e) => setCloudConsent(e.target.checked)}
+              />
+              I confirm this trial uses my cloud account and may incur session
+              charges.
+            </label>
+          )}
+          {(cloudTrial || chosenProfile?.browser === "webkit") && (
+            <p className="automate-note">
+              This profile currently does not support redirects or streaming.
+              Use local Chromium or Firefox for those flows. Configure provider
+              credentials and a tunnel when your application is private.
+            </p>
+          )}
           <div className="automate-actions">
             <button
               className="button primary"
               disabled={
                 pending ||
                 status.stale ||
+                !chosenProfile ||
+                (cloudTrial && !cloudConsent) ||
                 state.runs.some((r) => r.state === "running")
               }
-              onClick={() => void act("intake/trial", {})}
+              onClick={() =>
+                void act("intake/trial", {
+                  profile: trialProfile,
+                  acknowledgeCloud: cloudTrial && cloudConsent,
+                })
+              }
             >
-              Run local draft trial
+              {cloudTrial ? "Run cloud draft trial" : "Run local draft trial"}
             </button>
             <button className="button" onClick={() => go("tests")}>
               Review generated tests
@@ -592,6 +652,11 @@ export default function Intake({
           {job && (
             <div className="automate-result">
               <strong>Trial: {job.state}</strong>
+              {job.configuration && (
+                <p>
+                  {job.configuration.environment} · {job.configuration.profile}
+                </p>
+              )}
               {job.error && <p>{job.error}</p>}
               {job.report?.results.map((r) => (
                 <div key={r.id}>
