@@ -26,4 +26,11 @@ export function changes(before:Snapshot,after:Snapshot) {
   const a=new Map(before.files.map(f=>[f.path,f.hash])); const b=new Map(after.files.map(f=>[f.path,f.hash]));
   return [...new Set([...a.keys(),...b.keys()])].filter(p=>a.get(p)!==b.get(p)).map(path=>({path,status:!a.has(path)?'added':!b.has(path)?'removed':'modified',revision:after.revision}));
 }
-export async function loadSnapshot(path:string) { return Snapshot.parse(JSON.parse(await readFile(path,'utf8'))); }
+export async function loadSnapshot(path:string) { return validateSnapshot(JSON.parse(await readFile(path,'utf8'))); }
+
+export function validateSnapshot(raw:unknown):Snapshot {
+  const value=Snapshot.parse(raw);
+  if(new Set(value.files.map(f=>f.path)).size!==value.files.length)throw new Error('Duplicate knowledge source paths');
+  for(const f of value.files)if(f.hash!==createHash('sha256').update(f.content).digest('hex'))throw new Error('Knowledge content hash mismatch');
+  return value;
+}

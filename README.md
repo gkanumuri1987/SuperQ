@@ -2,7 +2,7 @@
 
 Evidence-driven automation for quality engineering teams. SuperQ keeps application source read-only and owns its test catalog, assertions, data and execution in a separate repository.
 
-**Status: runnable foundation, not a finished enterprise platform.** Web and API execution are demonstrated locally. PostgreSQL, MongoDB and Snowflake adapters and Jira/ADO read connectors need integration validation with your systems. AI and healing are reviewable proposal interfaces; no autonomous learning, model subscription or paid calls are enabled.
+**Status: runnable foundation, not a finished enterprise platform.** Web and API execution are demonstrated locally. PostgreSQL, MongoDB and Snowflake adapters and Jira/ADO read connectors need integration validation with your systems. AI supports optional local Ollama proposals and a provider interface. Healing remains a reviewable proposal boundary; no autonomous learning, model subscription or paid calls are enabled.
 
 ## Run locally
 
@@ -26,6 +26,14 @@ npm run bdd
 ```
 
 Execution writes `.superq/report.json` and uniquely named report directories under `.superq/runs/`. Any failed, blocked or skipped selected test produces a nonzero exit status. `analyze` is informational and reports gaps without running tests. Tests without explicit assertions cannot pass. Each browser journey has an isolated browser context; API calls are stateless. Share business setup through fixtures and test data rather than dependent mutable sessions.
+
+## Production readiness and gap review
+
+Run `npm run superq -- audit project.json` for prioritized gaps. Explicit acceptance criteria, reviewer attestations bound to test/evidence content, and stronger coverage rules prevent a single happy-path pass from hiding failed linked tests. Step deadlines, response capture and retrying UI text assertions improve real workflows.
+
+A separate `promote` assessment requires a release policy, complete fresh suite/browser evidence, immutable build identities, external checks and independent approvals. It never deploys or certifies an application. See the [full review and readiness guide](docs/review-and-production-readiness.md) for findings, commands and remaining production blockers.
+
+Optional local AI is now available through `suggest project.json REQ-ID --model <installed-local-model>` using Ollama. No model is automatically selected or downloaded; generated drafts still require QE review.
 
 ## What is implemented
 
@@ -100,7 +108,7 @@ Pass all paths in scope for each snapshot; omission is interpreted as removal. F
 
 ### AI and tracker extension points
 
-`src/ai.ts` accepts a `ModelProvider`. Use your organization's model gateway to enforce a hard per-call budget and return actual cost. Call `Planner.propose` with a project, requirement ID and maximum reserved cost. No provider, credentials or live model calls are bundled. Citation validation cannot determine whether prose is factually supported: QE review is mandatory. Provider failures consume the reservation conservatively. Budgets/cache are in-memory and must become durable before multi-worker use.
+`src/ai.ts` accepts a `ModelProvider`. Use your organization's model gateway to enforce a hard per-call budget and return actual cost. Call `Planner.propose` with a project, requirement ID and maximum reserved cost. An optional local Ollama adapter is included; no installed model, credentials or live model validation is bundled. Citation validation cannot determine whether prose is factually supported: QE review is mandatory. Provider failures consume the reservation conservatively. Budgets/cache are in-memory and must become durable before multi-worker use.
 
 `src/connectors.ts` exposes `readJiraIssue` and `readAdoWorkItem`. They return source identity, revision and raw descriptions; Jira ADF/ADO HTML is retained rather than guessed into executable tests. Supply credentials from a secret store. Native test-management plugins (Xray/Zephyr), bulk synchronization, tracker writes and result publication are future work.
 

@@ -1,0 +1,12 @@
+{
+  "release": {
+    "environment": "qa",
+    "requiredSuites": ["regression"],
+    "requiredProfiles": ["local", "firefox", "webkit"],
+    "maxAgeHours": 24,
+    "minimumAutomation": 1,
+    "minimumProven": 1,
+    "requiredChecks": ["security", "performance", "rollback", "observability"],
+    "requiredApprovalRoles": ["qe", "release-owner"]
+  }
+}

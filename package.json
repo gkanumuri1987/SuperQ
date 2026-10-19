@@ -10,12 +10,13 @@
   "scripts": {
     "build": "tsc",
     "test": "tsx --test tests/*.test.ts",
-    "check": "npm run build && npm test",
+    "check": "npm run build && npm run typecheck && npm test",
     "superq": "tsx src/cli.ts",
     "demo": "tsx src/cli.ts analyze examples/project.json",
     "bdd": "npm run build && cucumber-js --import examples/bdd/steps.mjs examples/bdd/health.feature",
     "reference-app": "tsx examples/server.ts",
-    "verify-example": "tsx examples/verify.ts"
+    "verify-example": "tsx examples/verify.ts",
+    "typecheck": "tsc -p tsconfig.check.json"
   },
   "dependencies": {
     "@playwright/test": "^1.56.0",

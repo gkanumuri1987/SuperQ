@@ -16,3 +16,7 @@ test('snapshot reads committed evidence, rejects untracked secrets and does not 
     await assert.rejects(()=>snapshot(repo,['.env']),/Unsafe/); await assert.rejects(()=>snapshot(repo,['../contract.md']),/Unsafe/);
   } finally {await rm(repo,{recursive:true,force:true});}
 });
+test('edited knowledge content cannot retain a stale trusted hash',async()=>{
+  const {validateSnapshot}=await import('../src/knowledge.js');
+  assert.throws(()=>validateSnapshot({revision:'fixture',files:[{path:'contract.md',hash:'0'.repeat(64),content:'altered content'}]}),/hash mismatch/);
+});

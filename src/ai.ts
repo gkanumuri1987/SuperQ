@@ -1,15 +1,17 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { Project } from './model.js';
-const Proposal=z.object({summary:z.string().min(1),requirementId:z.string(),evidenceIds:z.array(z.string()).min(1),actionIds:z.array(z.string()),questions:z.array(z.string()),steps:z.array(z.string()).min(1)}).strict();
+export const Proposal=z.object({summary:z.string().min(1),requirementId:z.string(),evidenceIds:z.array(z.string()).min(1),actionIds:z.array(z.string()),questions:z.array(z.string()),steps:z.array(z.string()).min(1)}).strict();
 export type Proposal=z.infer<typeof Proposal>;
 export type ModelProvider=(request:{prompt:string;maxOutputTokens:number})=>Promise<{json:unknown;costUsd:number}>;
 /** One explicit call, no repair loops. Provider must enforce the reservation bound. */
 export class Planner {
+  private disabled=false;
   private spent=0; private reserved=0; private cache=new Map<string,Proposal>();
   constructor(private provider:ModelProvider,private budgetUsd:number) { if(!Number.isFinite(budgetUsd)||budgetUsd<=0) throw new Error('Positive finite budget required'); }
   get costUsd(){return this.spent;}
   async propose(p:Project,requirementId:string,reserveUsd:number):Promise<Proposal> {
+    if(this.disabled)throw new Error('AI provider disabled after billing violation');
     const requirement=p.requirements.find(r=>r.id===requirementId); if(!requirement) throw new Error('Unknown requirement');
     const evidence=p.evidence.filter(e=>requirement.evidenceIds.includes(e.id));
     if(!evidence.length) throw new Error('Abstaining: no evidence');
@@ -21,9 +23,9 @@ export class Planner {
     try {
       const response=await this.provider({prompt,maxOutputTokens:2000});
       // Charge even when the model returns an invalid proposal.
-      if(!Number.isFinite(response.costUsd)||response.costUsd<0) {this.spent+=reserveUsd; billed=true; throw new Error('Invalid provider billing');}
+      if(!Number.isFinite(response.costUsd)||response.costUsd<0) {this.disabled=true;this.spent+=reserveUsd; billed=true; throw new Error('Invalid provider billing');}
       this.spent+=response.costUsd; billed=true;
-      if(response.costUsd>reserveUsd) throw new Error('Provider exceeded reservation; disable provider');
+      if(response.costUsd>reserveUsd){this.disabled=true;throw new Error('Provider exceeded reservation; provider disabled');}
       const proposal=Proposal.parse(response.json);
       if(proposal.requirementId!==requirementId||proposal.evidenceIds.some(id=>!evidence.some(e=>e.id===id))||proposal.actionIds.some(id=>!p.catalog.some(a=>a.id===id))) throw new Error('Unsupported AI references');
       this.cache.set(key,proposal); return proposal;

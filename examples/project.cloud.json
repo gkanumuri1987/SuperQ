@@ -15,6 +15,16 @@
       "risk": "critical",
       "evidenceIds": [
         "DOC-1"
+      ],
+      "criteria": [
+        {
+          "id": "AC-HTTP",
+          "title": "Health response has status 200"
+        },
+        {
+          "id": "AC-BODY",
+          "title": "Health body status is ok"
+        }
       ]
     },
     {
@@ -23,6 +33,12 @@
       "risk": "high",
       "evidenceIds": [
         "DOC-1"
+      ],
+      "criteria": [
+        {
+          "id": "AC-VISIBLE",
+          "title": "Page shows Service healthy"
+        }
       ]
     },
     {
@@ -94,7 +110,13 @@
         "smoke",
         "api"
       ],
-      "retrySafe": true
+      "retrySafe": true,
+      "covers": {
+        "REQ-HEALTH": [
+          "AC-HTTP",
+          "AC-BODY"
+        ]
+      }
     },
     {
       "id": "TC-WEB",
@@ -121,8 +143,10 @@
                 "path": "/"
               },
               {
-                "type": "text",
-                "locator": "health-status"
+                "type": "expectText",
+                "locator": "health-status",
+                "value": "Service healthy",
+                "timeoutMs": 5000
               }
             ]
           },
@@ -139,7 +163,12 @@
         "smoke",
         "web"
       ],
-      "retrySafe": true
+      "retrySafe": true,
+      "covers": {
+        "REQ-WEB": [
+          "AC-VISIBLE"
+        ]
+      }
     },
     {
       "id": "TC-DATA-DRAFT",

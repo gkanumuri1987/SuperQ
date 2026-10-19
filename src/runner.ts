@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import type { Project, Result, Step, Assertion, Attempt } from './model.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { Execution } from './config.js';
-export type Context = { project: Project; baseURL: string; data: Record<string,unknown>; testId?: string; attempt?: number };
+export type Context = { project: Project; baseURL: string; data: Record<string,unknown>; testId?: string; attempt?: number; signal?:AbortSignal };
 export type Handler = (input: Record<string,unknown>, context: Context) => Promise<unknown>;
 export class Registry {
   private handlers = new Map<string,Handler>();
@@ -10,9 +10,9 @@ export class Registry {
   get(operation: string) { const h=this.handlers.get(operation); if(!h) throw new Error(`No handler for ${operation}`); return h; }
 }
 export function resolveData(p: Project, env: string, suite: string, testData: Record<string,unknown>) {
-  if(!p.environments[env] || !p.suites[suite]) throw new Error('Unknown environment or suite');
+  if(!Object.hasOwn(p.environments,env) || !Object.hasOwn(p.suites,suite)) throw new Error('Unknown environment or suite');
   // Deliberately shallow: an object override replaces the entire object.
-  return {...p.data,...p.environments[env].data,...p.suites[suite].data,...testData};
+  return {...p.data,...p.environments[env]!.data,...p.suites[suite]!.data,...testData};
 }
 export function interpolate(value: unknown, data: Record<string,unknown>): unknown {
   if(typeof value==='string') {
@@ -25,20 +25,25 @@ export function interpolate(value: unknown, data: Record<string,unknown>): unkno
   if(value && typeof value==='object') return Object.fromEntries(Object.entries(value).map(([k,v])=>[k,interpolate(v,data)]));
   return value;
 }
-export function check(actual: unknown, a: Assertion) {
+export function valueAt(actual:unknown,path:string){
   let value=actual;
-  for(const key of a.path ? a.path.split('.') : []) {
+  for(const key of path ? path.split('.') : []) {
     value = value!==null && typeof value==='object' && Object.hasOwn(value,key) ? (value as Record<string,unknown>)[key] : undefined;
   }
+  return value;
+}
+export function check(actual: unknown, a: Assertion) {
+  const value=valueAt(actual,a.path);
   switch(a.operator) {
     case 'equals': assert.deepEqual(value,a.expected); break;
     case 'exists': assert.notEqual(value,undefined); assert.notEqual(value,null); break;
     case 'contains': assert.ok(typeof value==='string' ? value.includes(String(a.expected)) : Array.isArray(value) && value.some(x=>{try{assert.deepEqual(x,a.expected); return true;}catch{return false;}})); break;
     case 'matches': assert.equal(typeof value,'string'); assert.match(value as string,new RegExp(String(a.expected))); break;
+    default: throw new Error('Unsupported assertion operator');
   }
 }
 export function selectTests(p:Project,suite:string,options:Execution) {
-  if(!p.suites[suite]) throw new Error('Unknown suite');
+  if(!Object.hasOwn(p.suites,suite)) throw new Error('Unknown suite');
   for(const id of options.testIds) if(!p.tests.some(t=>t.id===id&&t.suites.includes(suite))) throw new Error(`Unknown test in suite: ${id}`);
   const roots=p.tests.filter(t=>t.suites.includes(suite)
     && (!options.testIds.length||options.testIds.includes(t.id))
@@ -51,13 +56,13 @@ export function selectTests(p:Project,suite:string,options:Execution) {
   return {roots:roots.map(t=>t.id),tests:p.tests.filter(t=>ids.has(t.id))};
 }
 export async function run(p: Project, env: string, suite: string, registry: Registry, overrides:Partial<Execution>={}): Promise<Result[]> {
-  if(!p.environments[env] || !p.suites[suite]) throw new Error('Unknown environment or suite');
+  if(!Object.hasOwn(p.environments,env) || !Object.hasOwn(p.suites,suite)) throw new Error('Unknown environment or suite');
   const options=Execution.parse({...p.execution,...overrides});
   const {roots,tests}=selectTests(p,suite,options);
   if(!roots.length) throw new Error('No tests selected; check suite, tags, test IDs or shard');
   const executionId=randomUUID();
   const results=new Map<string,Result>(); const pending=new Set(tests.map(t=>t.id));
-  const running=new Map<string,Promise<void>>(); let failures=0;
+  const running=new Map<string,Promise<void>>(); let failures=0;let timedOut=false;
   async function execute(id:string):Promise<Result> {
     const t=tests.find(t=>t.id===id)!; const start=Date.now(); const attempts:Attempt[]=[];
     const finish=(status:Result['status'],reason?:string):Result=>({id,status,durationMs:Date.now()-start,attempts,flaky:status==='passed'&&attempts.length>1,dependency:!roots.includes(id),...(reason?{reason}:{})});
@@ -66,17 +71,24 @@ export async function run(p: Project, env: string, suite: string, registry: Regi
     for(const d of t.dependsOn) if(results.get(d)?.status!=='passed') return finish('blocked',`Dependency ${d} did not pass`);
     if(!t.steps.length || !t.steps.some(s=>s.assertions.length)) return finish('blocked','Executable steps and explicit assertions required');
     for(let number=1;number<=1+(t.retrySafe?options.retries:0);number++) {
-      const attemptStart=Date.now(); let step=0; let failureKind:'action'|'assertion'='action';
+      const attemptStart=Date.now(); let step=0; let failureKind:'action'|'assertion'|'timeout'='action';
+      let didTimeout=false;
       try {
-        const data={...resolveData(p,env,suite,t.data),'superq.testId':id,'superq.attempt':number,'superq.runId':executionId,'superq.environment':env,'superq.suite':suite}; const context={project:p,baseURL:p.environments[env]!.baseURL,data,testId:id,attempt:number};
+        const data={...structuredClone(resolveData(p,env,suite,t.data)),'superq.testId':id,'superq.attempt':number,'superq.runId':executionId,'superq.environment':env,'superq.suite':suite}; const context={project:p,baseURL:p.environments[env]!.baseURL,data,testId:id,attempt:number};
         for(const raw of t.steps) {
-          step++; failureKind='action'; const s=interpolate(raw,data) as Step; const action=p.catalog.find(a=>a.id===s.action)!;
-          const response=await registry.get(`${action.kind}:${action.operation}`)(s.input,context);
+          step++; failureKind='action'; const s={...raw,input:interpolate(raw.input,data),assertions:interpolate(raw.assertions,data)} as Step; const action=p.catalog.find(a=>a.id===s.action)!;
+          const controller=new AbortController();let timer:ReturnType<typeof setTimeout>|undefined;
+          const timeout=new Promise<never>((_,reject)=>{timer=setTimeout(()=>{didTimeout=true;timedOut=true;controller.abort();reject(new Error('Step deadline exceeded'));},options.stepTimeoutMs);});
+          let response:unknown;
+          try{response=await Promise.race([registry.get(`${action.kind}:${action.operation}`)(s.input,{...context,signal:controller.signal}),timeout]);}
+          finally{clearTimeout(timer);}
           failureKind='assertion'; s.assertions.forEach(a=>check(response,a));
+          for(const [key,path] of Object.entries(s.save)){const value=valueAt(response,path);if(value===undefined) throw new Error('Saved response field is missing');Object.assign(data,{[key]:value});}
         }
         attempts.push({number,status:'passed',durationMs:Date.now()-attemptStart}); return finish('passed');
       } catch {
-        attempts.push({number,status:'failed',durationMs:Date.now()-attemptStart,failedStep:step,failureKind});
+        attempts.push({number,status:'failed',durationMs:Date.now()-attemptStart,failedStep:step,failureKind:didTimeout?'timeout':failureKind});
+        if(didTimeout) break;
       }
     }
     return finish('failed','Action or assertion failed; raw values omitted to protect secrets.');
@@ -88,7 +100,7 @@ export async function run(p: Project, env: string, suite: string, registry: Regi
       const t=tests.find(t=>t.id===id)!;
       if(!t.dependsOn.every(d=>results.has(d))) continue;
       pending.delete(id); progressed=true;
-      if(options.maxFailures&&failures>=options.maxFailures) {results.set(id,{id,status:'skipped',durationMs:0,reason:'Maximum failures reached',dependency:!roots.includes(id)});continue;}
+      if(timedOut||(options.maxFailures&&failures>=options.maxFailures)) {results.set(id,{id,status:'skipped',durationMs:0,reason:timedOut?'A step timed out; queued work stopped':'Maximum failures reached',dependency:!roots.includes(id)});continue;}
       const task=execute(id).then(result=>{results.set(id,result);if(result.status==='failed') failures++;}).finally(()=>{running.delete(id);});
       running.set(id,task);
     }

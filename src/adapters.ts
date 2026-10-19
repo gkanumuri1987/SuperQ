@@ -1,4 +1,4 @@
-import { request, type Browser } from '@playwright/test';
+import { request, expect, type Browser } from '@playwright/test';
 import { Client } from 'pg';
 import { MongoClient } from 'mongodb';
 import snowflake from 'snowflake-sdk';
@@ -22,8 +22,9 @@ export function createAdapters(rawProfile:unknown={provider:'local'}, connector:
     const i=z.object({path:z.string(),method:z.enum(['GET','POST','PUT','PATCH','DELETE','HEAD']).default('GET'),body:z.unknown().optional(),headers:z.record(z.string(),z.string()).optional()}).strict().parse(input);
     const url=new URL(i.path,ctx.baseURL); if(url.origin!==new URL(ctx.baseURL).origin) throw new Error('Cross-origin API request denied');
     const api=await request.newContext({baseURL:ctx.baseURL,timeout:30_000,ignoreHTTPSErrors:false});
+    const abort=()=>{void api.dispose().catch(()=>{});};ctx.signal?.addEventListener('abort',abort,{once:true});if(ctx.signal?.aborted)abort();
     try { const r=await api.fetch(url.href,{method:i.method,data:i.body,headers:i.headers,maxRedirects:0}); const text=await r.text(); let body:unknown=text; try{body=JSON.parse(text);}catch{} return {status:r.status(),body}; }
-    finally { await api.dispose(); }
+    finally {ctx.signal?.removeEventListener('abort',abort); await api.dispose(); }
   });
   registry.register('web:journey',async(input,ctx)=>{
     const command=z.discriminatedUnion('type',[
@@ -31,13 +32,16 @@ export function createAdapters(rawProfile:unknown={provider:'local'}, connector:
       z.object({type:z.literal('click'),locator:z.string()}).strict(),
       z.object({type:z.literal('fill'),locator:z.string(),value:z.string()}).strict(),
       z.object({type:z.literal('text'),locator:z.string()}).strict(),
+      z.object({type:z.literal('expectText'),locator:z.string(),value:z.string(),timeoutMs:z.number().int().min(1).max(60000).default(5000)}).strict(),
     ]);
     const i=z.object({commands:z.array(command).min(1)}).strict().parse(input);
     // One journey owns one browser session, including cloud sessions. No mutable
     // session is shared across parallel tests or retries.
     const browser=await connector(profile,`${ctx.testId??'SuperQ journey'} (attempt ${ctx.attempt??1})`); browsers.add(browser);
     let context:Awaited<ReturnType<Browser['newContext']>>|undefined;
+    const abort=()=>{void browser.close().catch(()=>{});};ctx.signal?.addEventListener('abort',abort,{once:true});
     try {
+      if(ctx.signal?.aborted)throw new Error('Browser journey cancelled');
       context=await browser.newContext({viewport:profile.viewport,locale:profile.locale,timezoneId:profile.timezoneId});
       const origin=new URL(ctx.baseURL).origin;
       await context.route('**/*',async route=> { const url=new URL(route.request().url()); if(url.origin===origin) await route.continue(); else await route.abort(); });
@@ -48,14 +52,15 @@ export function createAdapters(rawProfile:unknown={provider:'local'}, connector:
         const locator=def.strategy==='testId'?page.getByTestId(def.value):def.strategy==='label'?page.getByLabel(def.value,{exact:true}):page.getByRole(def.value as Parameters<typeof page.getByRole>[0],{name:def.name,exact:true});
         if(c.type==='click') await locator.click();
         else if(c.type==='fill') await locator.fill(c.value);
+        else if(c.type==='expectText') {await expect(locator).toHaveText(c.value,{timeout:c.timeoutMs});text[c.locator]=await locator.innerText();}
         else { await locator.waitFor({state:'visible'}); text[c.locator]=await locator.innerText(); }
       }
       return {url:page.url(),text};
-    } finally { try {await context?.close();} finally {await browser.close();browsers.delete(browser);} }
+    } finally {ctx.signal?.removeEventListener('abort',abort); try {await context?.close();} finally {await browser.close();browsers.delete(browser);} }
   });
   registry.register('postgres:query',async input=>{
     const i=sqlInput.parse(input); readQuery(i.query);
-    const db=new Client({connectionString:secret('SUPERQ_POSTGRES_URL'),statement_timeout:30_000,query_timeout:30_000});
+    const db=new Client({connectionString:secret('SUPERQ_POSTGRES_URL'),connectionTimeoutMillis:15_000,statement_timeout:30_000,query_timeout:30_000});
     try { await db.connect(); await db.query('BEGIN READ ONLY'); const result=await db.query(i.query,i.params); return {rows:result.rows,rowCount:result.rowCount}; }
     finally { await db.end(); }
   });

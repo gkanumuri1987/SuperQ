@@ -16,3 +16,11 @@ for(const browser of (process.env.SUPERQ_TEST_BROWSERS??'chromium').split(',')) 
     text='Service unavailable'; assert.equal((await run(p,'local','browser',adapters.registry))[0]!.status,'failed');
   } finally {await adapters.close(); await new Promise<void>(resolve=>server.close(()=>resolve()));}
 });
+test('web-first text assertion waits for delayed UI state and still rejects wrong expectations',async()=>{
+  const server=createServer((_req,res)=>{res.setHeader('content-type','text/html');res.end('<p data-testid="health-status">Loading</p><script>setTimeout(()=>{document.querySelector("p").textContent="Service healthy"},150)</script>');});
+  await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));const address=server.address();assert.ok(address&&typeof address!=='string');
+  const p=validateProject(JSON.parse(await readFile('examples/project.json','utf8')));p.environments.local!.baseURL=`http://127.0.0.1:${address.port}`;
+  const step=p.tests[1]!.steps[0]!;step.input.commands=[{type:'goto',path:'/'},{type:'expectText',locator:'health-status',value:'Service healthy',timeoutMs:2000}];const adapters=createAdapters();
+  try{assert.equal((await run(p,'local','browser',adapters.registry))[0]!.status,'passed');step.input.commands=[{type:'goto',path:'/'},{type:'expectText',locator:'health-status',value:'Impossible',timeoutMs:200}];assert.equal((await run(p,'local','browser',adapters.registry))[0]!.status,'failed');}
+  finally{await adapters.close();await new Promise<void>(resolve=>server.close(()=>resolve()));}
+});

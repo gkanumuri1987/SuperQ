@@ -18,7 +18,7 @@ test('rejects broken references, cycles, duplicated catalog and locator definiti
 });
 test('separates declared, automated and proven coverage; missing QE and automation remain visible',()=>{
   const report=coverage(project()); assert.equal(report.rows[0]!.proven,false); assert.deepEqual(report.rows[2]!.gaps,['missing-qe-review','no-approved-test','missing-asserted-automation','blocker']);
-  assert.equal(coverage(project(),[{id:'TC-API',status:'passed',durationMs:1}]).rows[0]!.proven,true);
+  const run=coverage(project(),[{id:'TC-API',status:'passed',durationMs:1}]);assert.equal(run.rows[0]!.executed,true);assert.equal(run.rows[0]!.proven,false); // Execution is not a reviewed business-coverage claim.
 });
 test('data precedence is global < environment < suite < case; missing values fail',()=>{
   const p=project(); p.data={a:1,b:1}; p.environments.local!.data={a:2}; p.suites.smoke!.data={a:3};
@@ -62,4 +62,9 @@ test('unknown provider failures consume the reservation and cannot trigger unbou
   let calls=0; const planner=new Planner(async()=>{calls++;throw new Error('Network failure');},0.01);
   await assert.rejects(()=>planner.propose(project(),'REQ-HEALTH',0.01),/Network/);
   assert.equal(planner.costUsd,0.01); await assert.rejects(()=>planner.propose(project(),'REQ-HEALTH',0.01),/budget/); assert.equal(calls,1);
+});
+test('billing violations permanently disable further calls to that provider instance',async()=>{
+  let calls=0;const planner=new Planner(async()=>{calls++;return {costUsd:0.02,json:{}};},1);
+  await assert.rejects(()=>planner.propose(project(),'REQ-HEALTH',0.01),/exceeded/);
+  await assert.rejects(()=>planner.propose(project(),'REQ-HEALTH',0.01),/disabled/);assert.equal(calls,1);
 });

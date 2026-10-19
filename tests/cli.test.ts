@@ -19,3 +19,16 @@ test('doctor reports credential names without secrets and does not start a paid 
   const env={...process.env};delete env.BROWSERSTACK_USERNAME;delete env.BROWSERSTACK_ACCESS_KEY;
   const result=cli(['doctor','examples/project.cloud.json','--profiles','bs-chrome'],env);assert.equal(result.status,1);assert.deepEqual(JSON.parse(result.stdout).checks[0].missingCredentialNames,['BROWSERSTACK_USERNAME','BROWSERSTACK_ACCESS_KEY']);
 });
+test('audit exposes review drift and promotion exits nonzero without a policy',async()=>{
+  const {writeFile}=await import('node:fs/promises');
+  const dir=await mkdtemp(join(tmpdir(),'superq-readiness-'));const project=join(dir,'project.json');
+  try{
+    assert.equal(cli(['init',project]).status,0);
+    assert.equal(cli(['review-test',project,'TC-API','--reviewer','Fixture reviewer']).status,0);
+    let result=cli(['audit',project]);assert.equal(result.status,1);let findings=JSON.parse(result.stdout).findings;assert.ok(!findings.some((f:{id:string;subject:string})=>f.id==='review-integrity'&&f.subject==='TC-API'));
+    const changed=JSON.parse(await readFile(project,'utf8'));changed.tests[0].steps[0].assertions[0].expected=500;await writeFile(project,JSON.stringify(changed));
+    result=cli(['audit',project]);findings=JSON.parse(result.stdout).findings;assert.ok(findings.some((f:{id:string;subject:string})=>f.id==='review-integrity'&&f.subject==='TC-API'));
+    await writeFile(join(dir,'report.json'),'{}');await writeFile(join(dir,'manifest.json'),JSON.stringify({applicationRevision:'a'.repeat(40),artifactDigest:`sha256:${'b'.repeat(64)}`,reports:['report.json'],checks:[],approvals:[]}));
+    result=cli(['promote',project,join(dir,'manifest.json'),'--output',join(dir,'results')]);assert.equal(result.status,1);const decision=JSON.parse(result.stdout);assert.equal(decision.decision,'blocked');assert.equal(decision.certified,false);assert.ok(decision.reasons.includes('No release policy configured'));
+  }finally{await rm(dir,{recursive:true,force:true});}
+});

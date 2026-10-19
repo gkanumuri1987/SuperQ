@@ -1,5 +1,11 @@
 import { readFile, mkdir, writeFile, access } from 'node:fs/promises';
-import { resolve, join } from 'node:path';
+import { resolve, join, dirname } from 'node:path';
+import { assessPromotion } from './promotion.js';
+import { PromotionManifest, Revision, ArtifactDigest } from './release-policy.js';
+import { automationIdentity, reviewFingerprint } from './identity.js';
+import { audit } from './audit.js';
+import { Planner } from './ai.js';
+import { ollamaProvider } from './ollama.js';
 import { parseArgs } from 'node:util';
 import { chromium, firefox, webkit } from '@playwright/test';
 import { validateProject } from './model.js';
@@ -15,6 +21,10 @@ const help=`SuperQ — evidence-driven automation
   init <project.json>                      Create an editable reference project
   doctor <project.json>                   Validate setup without starting cloud sessions
   plan <project.json> <env> <suite>        Preview selection, dependencies and profiles
+  suggest <project.json> <requirement-id> --model <installed-local-model>
+  audit <project.json>                    Find coverage, review and automation gaps
+  review-test <project.json> <test-id> --reviewer <name>
+  promote <project.json> <manifest.json>   Assess evidence; never deploys or certifies
   run <project.json> <env> <suite>         Execute and generate reports
   validate|analyze <project.json>          Validate configuration or inspect coverage
   snapshot <repo> <output.json> <paths...> Capture committed, allowlisted source files
@@ -28,24 +38,29 @@ Run/plan options:
   --formats json,html,junit,markdown --output .superq
   --minimum-automation 0.9 --minimum-proven 0.8 --critical-gaps
 
+Use --application-revision <full-sha> --artifact-digest sha256:<digest> to bind release evidence.
 Reports include summary, tests, coverage, blockers and browser views.
 Cloud profiles require credentials and may incur provider charges when selected.
 `;
 async function main() {
-  const {positionals,values}=parseArgs({allowPositionals:true,options:{help:{type:'boolean'},profiles:{type:'string'},workers:{type:'string'},retries:{type:'string'},'max-failures':{type:'string'},tags:{type:'string'},'exclude-tags':{type:'string'},tests:{type:'string'},shard:{type:'string'},formats:{type:'string'},output:{type:'string'},'minimum-automation':{type:'string'},'minimum-proven':{type:'string'},'critical-gaps':{type:'boolean'}}});
+  const {positionals,values}=parseArgs({allowPositionals:true,options:{help:{type:'boolean'},model:{type:'string'},'ollama-url':{type:'string'},reviewer:{type:'string'},'application-revision':{type:'string'},'artifact-digest':{type:'string'},profiles:{type:'string'},workers:{type:'string'},retries:{type:'string'},'max-failures':{type:'string'},tags:{type:'string'},'exclude-tags':{type:'string'},tests:{type:'string'},shard:{type:'string'},formats:{type:'string'},output:{type:'string'},'minimum-automation':{type:'string'},'minimum-proven':{type:'string'},'critical-gaps':{type:'boolean'}}});
   const [command,file,...args]=positionals;
   if(values.help||!command) {console.log(help);return;}
   if(command==='init'&&file) {const template=await readFile(new URL('../examples/project.json',import.meta.url),'utf8');await writeFile(resolve(file),template,{flag:'wx',mode:0o600});console.log(`Created ${file}. Edit its requirements, tests and environment, then run doctor.`);return;}
   if(command==='snapshot'&&file&&args.length>=2) {const [out,...paths]=args; const result=await snapshot(file,paths); await writeFile(resolve(out!),JSON.stringify(result,null,2),{mode:0o600});console.log(`Saved committed source snapshot ${result.revision}`);return;}
   if(command==='diff'&&file&&args[0]) {console.log(JSON.stringify(changes(await loadSnapshot(file),await loadSnapshot(args[0])),null,2));return;}
-  if(!file||!['validate','analyze','run','plan','doctor'].includes(command)) throw new Error(help);
+  if(!file||!['validate','analyze','run','plan','doctor','audit','promote','review-test','suggest'].includes(command)) throw new Error(help);
   const p=validateProject(JSON.parse(await readFile(resolve(file),'utf8')));
+  if(command==='suggest'){if(!args[0]||!values.model)throw new Error('Requirement ID and explicit --model required');const planner=new Planner(ollamaProvider(values.model,values['ollama-url']),0.01);const proposal=await planner.propose(p,args[0],0.01);console.log(JSON.stringify({status:'draft',reviewRequired:true,provider:'ollama',model:values.model,proposal,note:'No executable test or approval was written. Local compute costs are not metered.'},null,2));return;}
+  if(command==='audit'){const result=audit(p);console.log(JSON.stringify(result,null,2));if(result.findings.some(f=>f.severity==='high'))process.exitCode=1;return;}
+  if(command==='review-test'){const test=p.tests.find(t=>t.id===args[0]);if(!test||!values.reviewer?.trim())throw new Error('Known test ID and --reviewer required');test.status='approved';test.review={reviewer:values.reviewer.trim(),at:new Date().toISOString(),digest:reviewFingerprint(p,test)};await writeFile(resolve(file),JSON.stringify(p,null,2)+'\n',{mode:0o600});console.log('Recorded review attestation. Commit the reviewed configuration before release execution.');return;}
+  if(command==='promote'){if(!args[0])throw new Error('Promotion manifest required');const path=resolve(args[0]);const manifest=PromotionManifest.parse(JSON.parse(await readFile(path,'utf8')));const reports=[];for(const report of manifest.reports)reports.push(JSON.parse(await readFile(resolve(dirname(path),report),'utf8')));const decision=assessPromotion(p,manifest,reports);const out=resolve(values.output??'.superq');await mkdir(out,{recursive:true,mode:0o700});await writeFile(join(out,'promotion.json'),JSON.stringify(decision,null,2),{mode:0o600});console.log(JSON.stringify(decision,null,2));if(decision.decision!=='eligible-for-human-review')process.exitCode=1;return;}
   if(command==='validate') {console.log(`Valid: ${p.name}`);return;}
   if(command==='analyze') {console.log(JSON.stringify(coverage(p),null,2));return;}
   if(command==='doctor') {
     const checks=[];
     const names=(values.profiles??'local').split(',').map(x=>x.trim()).filter(Boolean);
-    if(!names.length||names.some(name=>!p.browsers[name])) throw new Error('Unknown or empty browser profile selection');
+    if(!names.length||names.some(name=>!Object.hasOwn(p.browsers,name))) throw new Error('Unknown or empty browser profile selection');
     for(const name of names) {
       const profile=p.browsers[name]!;
       const missing=cloudCredentialNames(profile).filter(key=>!process.env[key]); let browserInstalled:boolean|null=null;
@@ -60,16 +75,19 @@ async function main() {
   if(values.shard){if(!/^\d+\/\d+$/.test(values.shard)) throw new Error('Shard format must be index/total');const [index,total]=values.shard.split('/').map(Number);shard={index:index!,total:total!};}
   p.execution=Execution.parse({...p.execution,...(values.workers!==undefined?{workers:numeric(values.workers)}:{}),...(values.retries!==undefined?{retries:numeric(values.retries)}:{}),...(values['max-failures']!==undefined?{maxFailures:numeric(values['max-failures'])}:{}),...(values.tags!==undefined?{includeTags:list(values.tags)}:{}),...(values['exclude-tags']!==undefined?{excludeTags:list(values['exclude-tags'])}:{}),...(values.tests!==undefined?{testIds:list(values.tests)}:{}),shard});
   p.reporting=Reporting.parse({...p.reporting,...(values.formats?{formats:list(values.formats)}:{}),...(values['minimum-automation']!==undefined?{minimumAutomation:numeric(values['minimum-automation'])}:{}),...(values['minimum-proven']!==undefined?{minimumProven:numeric(values['minimum-proven'])}:{}),...(values['critical-gaps']?{failOnCriticalGaps:true}:{})});
-  const [env,suite]=args;if(!env||!suite||!p.environments[env]) throw new Error('Known environment and suite required');
+  const [env,suite]=args;if(!env||!suite||!Object.hasOwn(p.environments,env)) throw new Error('Known environment and suite required');
   // Never implicitly select a configured cloud provider.
   const profiles=[...new Set(list(values.profiles??'local'))];if(!profiles.length) throw new Error('Select at least one profile');
-  for(const name of profiles){const profile=p.browsers[name];if(!profile) throw new Error(`Unknown browser profile: ${name}`);if(profile.provider!=='local'&&p.execution.workers>profile.maxSessions) throw new Error(`Workers exceed configured cloud session cap: ${name}`);}
+  for(const name of profiles){const profile=p.browsers[name]!;if(!Object.hasOwn(p.browsers,name)) throw new Error(`Unknown browser profile: ${name}`);if(profile.provider!=='local'&&p.execution.workers>profile.maxSessions) throw new Error(`Workers exceed configured cloud session cap: ${name}`);}
   const selected=selectTests(p,suite,p.execution);if(!selected.roots.length) throw new Error('No tests selected');
   if(command==='plan') {console.log(JSON.stringify({project:p.name,environment:env,suite,profiles:profiles.map(name=>({name,provider:p.browsers[name]!.provider,browser:p.browsers[name]!.browser})),workers:p.execution.workers,roots:selected.roots,prerequisites:selected.tests.filter(t=>!selected.roots.includes(t.id)).map(t=>t.id),estimatedMaximumBrowserSessions:profiles.reduce(n=>n+selected.tests.reduce((sum,t)=>sum+t.steps.filter(s=>p.catalog.find(a=>a.id===s.action)?.kind==='web').length*(1+(t.retrySafe?p.execution.retries:0)),0),0),note:'Dry run only. Dependencies may run in multiple shards. Repeated tests need isolated data.'},null,2));return;}
+  const applicationRevision=values['application-revision']?Revision.parse(values['application-revision']):undefined;
+  const artifactDigest=values['artifact-digest']?ArtifactDigest.parse(values['artifact-digest']):undefined;
+  const provenance={...automationIdentity(),applicationRevision,artifactDigest,startedAt:new Date().toISOString()};
   const runs:ProfileRun[]=[];
   for(const name of profiles){const profile=p.browsers[name]!;const adapters=createAdapters(profile);try{runs.push({profile:name,provider:profile.provider,browser:profile.browser,results:await run(p,env,suite,adapters.registry)});}finally{await adapters.close();}}
-  const report=createReport(p,env,suite,runs);const root=resolve(values.output??'.superq');const directory=join(root,'runs',report.runId);
+  const report=createReport(p,env,suite,runs,provenance);const root=resolve(values.output??'.superq');const directory=join(root,'runs',report.runId);
   await writeReports(report,p.reporting.formats,directory);await mkdir(root,{recursive:true,mode:0o700});await writeFile(join(root,'report.json'),JSON.stringify(report,null,2),{mode:0o600});
-  console.log(JSON.stringify({runId:report.runId,summary:report.summary,gates:report.gates,reports:directory},null,2));if(report.gates.length) process.exitCode=1;
+  console.log(JSON.stringify({runId:report.runId,summary:report.summary,productionCertified:false,gates:report.gates,reports:directory},null,2));if(report.gates.length) process.exitCode=1;
 }
 main().catch(error=>{console.error(error instanceof Error&&error.name==='ZodError'?'Invalid project or options: run validate/doctor and review schema types and bounds.':error instanceof SyntaxError?'Invalid JSON project.':error instanceof Error?error.message:'SuperQ failed');process.exitCode=1;});

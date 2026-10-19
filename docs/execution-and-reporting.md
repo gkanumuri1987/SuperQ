@@ -101,3 +101,8 @@ The GitHub pipeline uploads report artifacts. Azure Pipelines publishes JUnit an
 ## References
 
 Configuration follows [Playwright browser documentation](https://playwright.dev/docs/browsers), [BrowserStack Playwright capabilities](https://www.browserstack.com/docs/automate/playwright/playwright-capabilities), and [LambdaTest Playwright setup](https://www.lambdatest.com/support/docs/playwright-testing/). Recheck provider compatibility and tunnel instructions when configuring an account.
+
+
+## Stronger readiness controls
+
+Reports now use schema v2 and explicitly state that production readiness has not been assessed. Coverage considers every approved linked test and explicit acceptance criteria; QE origin alone is no longer counted as review. `audit`, `review-test`, immutable run identity flags and `promote` provide the separate readiness workflow documented in [the review guide](review-and-production-readiness.md). Legacy report files without required provenance cannot be used for promotion. Ordinary exploratory execution is still available without release identity flags.
